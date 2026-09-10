@@ -57,7 +57,11 @@ async def _pump_transcripts(session_id: str, recognizer: Any, actor: SessionActo
             if getattr(event, "__class__", None).__name__ == "UserTurnCommitted":
                 await actor.on_committed(event.text)
             else:
-                await actor.on_partial(event.text)
+                # Pass the provider's end-of-turn confidence through — it is what
+                # decides whether the model can be started before the shopper stops.
+                await actor.on_partial_scored(
+                    event.text, getattr(event, "end_of_turn_confidence", 0.0)
+                )
 
 
 @app.post("/api/session")

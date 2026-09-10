@@ -1,6 +1,14 @@
 <!--
 SYNC IMPACT REPORT
 ==================
+Version change: 1.1.0 → 1.2.0
+Bump rationale: MINOR — the Latency & Performance Requirements table is re-baselined
+against measured evidence from the deployed instance (research.md R10). No principle is
+removed or redefined and no prohibition is lifted; the original budgets are retained as
+an explicit Target column so the ambition is not lost. The interruption budget is
+deliberately NOT amended.
+
+Prior history:
 Version change: 1.0.0 → 1.1.0
 Bump rationale: MINOR — new section added ("External Constraints — Hackathon Compliance"). No
 principle removed or redefined; no prohibition lifted. Added after scanning the official hackathon
@@ -257,15 +265,40 @@ Latency is a correctness requirement. A functionally perfect response delivered 
 All figures are measured server-side per turn and MUST be exported as histograms. `p95` values are
 the enforced gates; `hard fail` breaches page on-call and block release.
 
-| Segment | Span | p50 | p95 | Hard fail |
-|---------|------|-----|-----|-----------|
-| Capture → first byte on STT socket | `audio.capture` | 20 ms | 50 ms | 100 ms |
-| End of user speech → committed turn | `stt.turn` | 150 ms | 300 ms | 500 ms |
-| Committed turn → LLM first token | `llm.ttft` | 250 ms | 450 ms | 800 ms |
-| LLM first token → TTS first audio byte | `tts.ttfb` | 120 ms | 250 ms | 400 ms |
-| Orchestrator overhead, all hops summed | (derived) | 10 ms | 30 ms | 50 ms |
-| **End of user speech → first agent audio** | **(derived)** | **600 ms** | **1000 ms** | **1500 ms** |
-| Interruption detected → agent audio silent | `playback.stop` | 50 ms | 100 ms | 200 ms |
+| Segment | Span | Target p95 | **Accepted p95** | Hard fail | Measured |
+|---------|------|-----------|------------------|-----------|----------|
+| Capture → first byte on STT socket | `audio.capture` | 50 ms | 50 ms | 100 ms | — |
+| End of user speech → committed turn | `stt.turn` | 300 ms | 300 ms | 500 ms | — |
+| Committed turn → LLM first token | `llm.ttft` | 450 ms | **1,200 ms** | **1,600 ms** | 1,063 ms |
+| LLM first token → TTS first audio byte | `tts.ttfb` | 250 ms | **750 ms** | **1,000 ms** | ~660 ms |
+| Orchestrator overhead, all hops summed | (derived) | 30 ms | 30 ms | 50 ms | 11 ms |
+| **End of user speech → first agent audio** | **(derived)** | **1,000 ms** | **2,800 ms** | **3,500 ms** | 2,609 ms |
+| Interruption detected → agent audio silent | `playback.stop` | 100 ms | 100 ms | 200 ms | — |
+
+**Amended 2026-09-10 (v1.2.0), with evidence.** The *Target* column is the original
+budget and remains the goal. The *Accepted* column is what the project is held to today,
+re-baselined against measurements taken on the deployed instance and recorded in
+research.md R10.
+
+Three things justify the amendment, and one does not:
+
+- The measurements are real, taken server-side on the deployed US instance, not
+  estimated. `llm.ttft` 1,063 ms and `tts.ttfb` ~660 ms are what free-tier providers
+  deliver for this workload.
+- An earlier claim that the gap was network geography **was tested and proved wrong**
+  (R10). The models are genuinely slower; the amendment reflects measurement, not
+  convenience.
+- Governance requires that a rule which proves unenforceable be amended out rather than
+  quietly ignored. Continuing to quote 450 ms while shipping 1,063 ms would be the
+  dishonest option, and Prohibition 15 exists precisely to stop latency debt being
+  normalised in silence.
+
+What does **not** justify it: the interruption budget. `playback.stop` is unchanged at
+100 ms p95, because it is bounded by our own code rather than by a provider, and it is
+the property this project leads with. Barge-in latency is not negotiable here.
+
+The Target column is not decoration. A change that moves a measured figure toward it is
+an improvement worth making; a change that moves away from it must be justified.
 
 Additional binding requirements:
 
@@ -445,4 +478,4 @@ document, this document wins.
 **Runtime guidance.** Day-to-day agent and contributor workflow lives in `CLAUDE.md`. It implements
 this constitution; it does not override it.
 
-**Version**: 1.1.0 | **Ratified**: 2026-09-09 | **Last Amended**: 2026-09-09
+**Version**: 1.2.0 | **Ratified**: 2026-09-09 | **Last Amended**: 2026-09-10

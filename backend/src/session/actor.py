@@ -22,6 +22,7 @@ from src.core.barge_in import BargeInConfig, Decision, decide
 from src.core.clause_splitter import ClauseSplitter
 from src.core.clock import Clock, SystemClock
 from src.core.ports import ToolCall
+from src.core.speculation import SpeculationConfig, Verdict, promotable, should_dispatch
 from src.core.turn_state import Trigger, TurnState, TurnStateMachine
 from src.obs import metrics
 from src.obs.spans import TurnTimings
@@ -54,6 +55,7 @@ class SessionActor:
         send_audio: SendAudio,
         clock: Clock | None = None,
         barge_in: BargeInConfig | None = None,
+        speculation: SpeculationConfig | None = None,
     ) -> None:
         self.session_id = session_id
         self.customer_id = customer_id
@@ -65,6 +67,7 @@ class SessionActor:
         self._send_audio = send_audio
         self._clock = clock or SystemClock()
         self._barge_cfg = barge_in or BargeInConfig()
+        self._spec_cfg = speculation or SpeculationConfig()
 
         self._sm = TurnStateMachine(self._clock)
         self._messages: list[dict[str, Any]] = []
@@ -76,6 +79,14 @@ class SessionActor:
         self._current_turn_id = ""
         self._spoken_chars = 0
         self._interrupt_started: float | None = None
+
+        # Speculation state. The staged text is the whole point: it exists so a
+        # speculative answer can be held back until the turn commits, and discarded
+        # without ever being spoken or remembered if the shopper said something else.
+        self._spec_task: asyncio.Task[None] | None = None
+        self._spec_text: str | None = None      # partial the speculation was built on
+        self._spec_result: str | None = None    # staged answer, not yet spoken
+        self._spec_started: float | None = None
 
     async def greet(self) -> None:
         """The opening turn: AI disclosure and an open invitation, in one sentence.
@@ -138,6 +149,76 @@ class SessionActor:
             return
         await self.interrupt()
 
+    async def on_partial_scored(self, text: str, confidence: float) -> None:
+        """A partial that carries the provider's end-of-turn confidence.
+
+        Same advisory contract as `on_partial` — nothing here reaches memory — plus the
+        one thing confidence makes possible: starting the model early.
+        """
+        await self.on_partial(text)
+
+        verdict = should_dispatch(
+            text,
+            confidence=confidence,
+            last_dispatched=self._spec_text,
+            awaiting_confirmation=self._awaiting_confirmation,
+            agent_speaking=self._agent_speaking,
+            config=self._spec_cfg,
+        )
+        if verdict is not Verdict.DISPATCH:
+            return
+
+        self._cancel_speculation()
+        self._spec_text = text.strip()
+        self._spec_started = time.monotonic()
+        self._spec_task = asyncio.create_task(self._speculate(text.strip()))
+
+    async def _speculate(self, text: str) -> None:
+        """Run the model against a partial turn, into a staging buffer.
+
+        Read-only by construction: the ToolRegistry refuses any state-changing tool while
+        `speculative=True`, so this cannot create a return however the model reasons.
+        """
+        staged: list[str] = []
+        messages = [*self._messages, {"role": "user", "content": text}]
+        try:
+            for _ in range(2):  # one tool hop is enough to answer a lookup
+                calls: list[ToolCall] = []
+                async for chunk in self._llm.stream(messages=messages, speculative=True):
+                    if chunk.text:
+                        staged.append(chunk.text)
+                    if chunk.tool_calls:
+                        calls.extend(chunk.tool_calls)
+                if not calls:
+                    break
+                results = await asyncio.gather(
+                    *[self._invoke(c, self._current_turn_id, speculative=True) for c in calls]
+                )
+                messages.append(
+                    {
+                        "role": "assistant",
+                        "content": "",
+                        "tool_calls": [
+                            {"id": c.id, "name": c.name, "arguments": c.arguments} for c in calls
+                        ],
+                    }
+                )
+                for call, result in zip(calls, results, strict=True):
+                    messages.append({"role": "tool", "tool_use_id": call.id, "content": result})
+            self._spec_result = "".join(staged).strip() or None
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # A failed speculation is a non-event. The real turn runs normally.
+            self._spec_result = None
+
+    def _cancel_speculation(self) -> None:
+        if self._spec_task is not None and not self._spec_task.done():
+            self._spec_task.cancel()
+        self._spec_task = None
+        self._spec_result = None
+        self._spec_started = None
+
     async def on_committed(self, text: str) -> None:
         """A committed turn. This is the first point anything enters memory."""
         if self._agent_speaking:
@@ -164,8 +245,24 @@ class SessionActor:
             self._registry.confirm(turn_id)
         self._awaiting_confirmation = False
 
+        # Promote a speculation only if the shopper actually said what it answered.
+        # Anything else is an answer to a question they did not ask, and it is discarded
+        # rather than spoken (Architectural Principle 8: speculation is allowed,
+        # commitment is not).
+        staged = self._spec_result if promotable(text, self._spec_text) else None
+        if staged is not None:
+            metrics.inc("speculative_dispatch_total", {"outcome": "promoted"})
+            if self._spec_started is not None and self._timings is not None:
+                saved = (time.monotonic() - self._spec_started) * 1000
+                self._timings.record("llm.speculation_saved_ms", saved)
+        elif self._spec_text is not None:
+            metrics.inc("speculative_dispatch_total", {"outcome": "discarded"})
+        self._spec_text = None
+        promoted = staged
+        self._cancel_speculation()
+
         # One task group per turn. Cancelling it cancels everything below.
-        self._turn_task = asyncio.create_task(self._run_turn(turn_id))
+        self._turn_task = asyncio.create_task(self._run_turn(turn_id, promoted=promoted))
 
     async def interrupt(self) -> None:
         """Barge-in.
@@ -221,7 +318,7 @@ class SessionActor:
 
     # -- the turn ----------------------------------------------------------
 
-    async def _run_turn(self, turn_id: str) -> None:
+    async def _run_turn(self, turn_id: str, *, promoted: str | None = None) -> None:
         timings = self._timings
         assert timings is not None
         splitter = ClauseSplitter()
@@ -235,7 +332,15 @@ class SessionActor:
             async with asyncio.TaskGroup() as group:
                 group.create_task(self._pump_audio(turn_id, timings))
 
-                for hop in range(MAX_TOOL_HOPS):
+                if promoted is not None:
+                    # The answer already exists — generated while the shopper was still
+                    # speaking. Skip straight to synthesis; this is the entire saving.
+                    timings.mark_from_turn_start("llm.ttft")
+                    for clause in splitter.feed(promoted):
+                        spoken.append(clause)
+                        await self._tts.submit(clause, turn_id)
+
+                for hop in range(0 if promoted is not None else MAX_TOOL_HOPS):
                     tool_calls: list[ToolCall] = []
                     first_token = True
 
@@ -321,15 +426,20 @@ class SessionActor:
             # truncation already applied.
             await self._finish_turn(timings, status="interrupted")
 
-    async def _invoke(self, call: ToolCall, turn_id: str) -> dict[str, Any]:
+    async def _invoke(
+        self, call: ToolCall, turn_id: str, *, speculative: bool = False
+    ) -> dict[str, Any]:
         started = time.monotonic()
         ctx = ToolContext(
-            session_id=self.session_id, turn_id=turn_id, repo=self._repo, speculative=False
+            session_id=self.session_id,
+            turn_id=turn_id,
+            repo=self._repo,
+            speculative=speculative,
         )
 
         # A slow tool owes the shopper a holding phrase before they hear silence.
         holding: asyncio.Task[None] | None = None
-        if self._registry.is_slow(call.name):
+        if not speculative and self._registry.is_slow(call.name):
             holding = asyncio.create_task(self._holding_phrase(turn_id))
 
         try:
@@ -400,6 +510,7 @@ class SessionActor:
         await self._send_control({"type": "state", "state": self._sm.state.value})
 
     async def close(self) -> None:
+        self._cancel_speculation()
         if self._turn_task and not self._turn_task.done():
             self._turn_task.cancel()
         await self._tts.close()

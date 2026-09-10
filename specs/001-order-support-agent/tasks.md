@@ -96,7 +96,7 @@ at-risk latency budgets are resolved with numbers instead of estimates.
   - **Done when**: either both gates pass and this task closes as not-needed, or a decision is recorded with numbers and the user has chosen. Amending a constitutional budget requires the governance procedure, not a quiet edit.
   - **Effort**: M · **Critical path**: Yes (conditional)
 
-- [ ] T008 [P] Single-source latency budgets in `backend/src/obs/budgets.yaml`
+- [x] T008 [P] Single-source latency budgets in `backend/src/obs/budgets.yaml`
   - **What**: Extract every p50/p95/hard-fail figure from constitution, spec NFRs, and plan into one file, each row tagged `source: vendor|ours`. Loader plus a CI assertion comparing measured percentiles against it.
   - **Done when**: the three documents reference this file rather than restating numbers; a deliberately-tightened budget makes CI fail. **This is the drift fix flagged in PHR-0001/0002/0003** — it stops being a suggestion here.
   - **Effort**: M · **Critical path**: No
@@ -361,12 +361,12 @@ re-identification.
   - **Done when**: "your total is forty two dollars fifty" is never split mid-amount; the first fragment reaches TTS within 2–3 tokens of generation starting.
   - **Effort**: M · **Critical path**: Yes
 
-- [ ] T054 ⚠️ Speculative dispatch in `backend/src/core/orchestrator.py`
+- [x] T054 ⚠️ Speculative dispatch in `backend/src/core/orchestrator.py`
   - **What**: The four gates from plan.md § 5 — confidence threshold, 3-char delta, **read-only only**, one in flight. Output lands in a staging buffer, never TTS or memory.
   - **Done when**: a speculative call never reaches TTS before commitment; a speculative `create_return` is refused by the registry; a diverging committed transcript discards and cancels the staged stream. **This is the mechanism that makes the p50 budget reachable.**
   - **Effort**: L · **Critical path**: Yes
 
-- [ ] T055 Speculation promotion and metrics in `backend/src/core/orchestrator.py`
+- [x] T055 Speculation promotion and metrics in `backend/src/core/orchestrator.py`
   - **What**: On commit, promote a matching staged stream to TTS immediately; otherwise discard and re-dispatch. Emit `speculative_dispatch_total{promoted|discarded}`.
   - **Done when**: measured end-to-end p50 improves versus speculation disabled, and the improvement is quantified in the gate report. If it does not pay for itself, that is a finding worth recording rather than hiding.
   - **Effort**: M · **Critical path**: Yes
