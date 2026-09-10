@@ -536,7 +536,7 @@ lower score or exclusion from the hackathon."* Working software with a missing M
 weaker software with a complete submission. **Every task here is critical path.**
 
 - [ ] T081 Project title, descriptions, and tags in `SUBMISSION.md`
-  - **What**: Clear descriptive title; short and long descriptions within the platform's character/word limits; correct technology and category tags (AssemblyAI Realtime STT, Anthropic Claude, ElevenLabs, voice agent, e-commerce).
+  - **What**: Clear descriptive title; short and long descriptions within the platform's character/word limits; correct technology and category tags — the stack that actually runs: AssemblyAI Realtime STT, Groq (`openai/gpt-oss-120b`), Groq / Canopy Labs Orpheus, voice agent, e-commerce. Neither Anthropic nor ElevenLabs is in this project; tagging either would be a false claim a judge can check against the repository in one click.
   - **Done when**: all fields drafted and within limits. The long description leads with the business problem (containment rate), not the architecture — "Business value" is a separate scored criterion and the description is where it is judged.
   - **Effort**: M · **Critical path**: Yes
 
