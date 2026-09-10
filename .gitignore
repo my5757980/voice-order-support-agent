@@ -26,6 +26,11 @@ frontend/dist/
 .vite/
 
 # Tooling
+# Browser-automation artefacts. Page snapshots can capture whatever was on screen,
+# so they never belong in a public repository.
 .playwright-mcp/
+*-secrets.md
+page-*.yml
+console-*.log
 .DS_Store
 *.log
