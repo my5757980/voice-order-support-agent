@@ -28,7 +28,7 @@ import httpx
 
 from src.core.ports import LlmChunk, ToolCall
 from src.obs import metrics
-from src.tools.definitions import load_specs
+from src.tools.definitions import openai_tools
 
 # Known providers. `base_url` is all that distinguishes them.
 PROVIDERS: dict[str, str] = {
@@ -85,7 +85,7 @@ class OpenAICompatLanguageModel:
                 "user-agent": "voice-order-support-agent/0.1",
             },
         )
-        self._tools = _openai_tools()
+        self._tools = openai_tools()
 
     async def stream(
         self,
@@ -212,25 +212,6 @@ def _finish_calls(partial: dict[int, dict[str, Any]]) -> list[ToolCall]:
             continue
         calls.append(ToolCall(id=slot["id"] or f"call_{idx}", name=slot["name"], arguments=args))
     return calls
-
-
-def _openai_tools() -> list[dict[str, Any]]:
-    """Our contract, in OpenAI function-calling shape.
-
-    The schemas are the same objects the registry validates against, loaded from
-    `contracts/tools.schema.json` — there is no second copy to drift.
-    """
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": spec.name,
-                "description": spec.description,
-                "parameters": spec.input_schema,
-            },
-        }
-        for spec in load_specs()
-    ]
 
 
 def configured_provider() -> tuple[str, str] | None:

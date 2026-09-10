@@ -8,6 +8,15 @@ description: "Task list for Voice Order Support Agent implementation"
 **Prerequisites**: plan.md ✅, spec.md ✅, research.md ✅, data-model.md ✅, contracts/ ✅, quickstart.md ✅
 **Deadline**: 30 September 2026 (planning date 2026-09-09 → ~3 working weeks)
 
+> **⚠️ Superseded on 2026-09-10.** This document records the stack as *planned*. The
+> language model and speech synthesis both changed during implementation — Claude requires
+> a paid key, and the ElevenLabs free quota was exhausted. **What actually runs is
+> AssemblyAI STT + Groq `openai/gpt-oss-120b` + Groq / Canopy Labs Orpheus TTS.**
+> The evidence and reasoning are in [research.md](./research.md) § R9. The sections below
+> are kept because the decision trail is worth having, not because they describe the
+> current system.
+
+
 **Tests**: Included. The constitution makes test-backed behaviour non-negotiable for the turn state
 machine, interruption logic, and tool contracts, so test tasks are first-class here rather than
 optional.

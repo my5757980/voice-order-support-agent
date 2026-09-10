@@ -8,6 +8,15 @@
 
 ## Summary
 
+> **⚠️ Superseded on 2026-09-10.** This document records the stack as *planned*. The
+> language model and speech synthesis both changed during implementation — Claude requires
+> a paid key, and the ElevenLabs free quota was exhausted. **What actually runs is
+> AssemblyAI STT + Groq `openai/gpt-oss-120b` + Groq / Canopy Labs Orpheus TTS.**
+> The evidence and reasoning are in [research.md](./research.md) § R9. The sections below
+> are kept because the decision trail is worth having, not because they describe the
+> current system.
+
+
 Build a browser-based voice agent for e-commerce order support on an orchestration loop we own
 end to end. Audio is captured in the browser as 16 kHz PCM16 in 50 ms frames, relayed through our
 backend to AssemblyAI's v3 streaming WebSocket, committed into turns, reasoned over by Claude with
@@ -26,8 +35,9 @@ TTS time-to-first-byte, and LLM time-to-first-token with adaptive thinking enabl
 ## Technical Context
 
 **Language/Version**: Python 3.11+ (backend), TypeScript 5.x (browser)
-**Primary Dependencies**: FastAPI + uvicorn, `websockets`, `anthropic`, `elevenlabs` (or raw
-WebSocket), `pydantic` v2, `structlog`, `opentelemetry-sdk`; Vite + AudioWorklet (no UI framework)
+**Primary Dependencies**: FastAPI + uvicorn, `websockets`, `httpx`, `pydantic` v2,
+`structlog`; Vite + AudioWorklet (no UI framework). **Actual providers: AssemblyAI STT,
+Groq LLM, Groq Orpheus TTS** — two credentials, not three.
 **Storage**: In-memory per session; SQLite for durable memory and seeded order fixtures (single
 file, zero-ops, sufficient for the demo and swappable behind a repository port)
 **Testing**: `pytest` + `pytest-asyncio`, recorded STT frame fixtures, `freezegun`-style injected

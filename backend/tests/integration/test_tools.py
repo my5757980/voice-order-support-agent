@@ -16,7 +16,7 @@ import pytest
 from src.adapters.store.seed import DEMO_CUSTOMER_ID, seed
 from src.adapters.store.sqlite import OrderRepository, connect
 from src.core.ports import LatencyClass, ToolCall
-from src.tools.definitions import anthropic_tools, load_specs, spec_for
+from src.tools.definitions import load_specs, openai_tools, spec_for
 from src.tools.handlers import build_registry
 from src.tools.registry import ToolContext
 
@@ -70,11 +70,18 @@ def test_state_changing_tools_are_never_speculative_safe() -> None:
 
 
 def test_provider_definitions_are_strict() -> None:
-    for tool in anthropic_tools():
-        assert tool["strict"] is True
-        schema = tool["input_schema"]
-        assert schema["additionalProperties"] is False  # type: ignore[index]
-        assert "required" in schema  # type: ignore[operator]
+    """The schemas the adapter actually sends must be strict-validatable.
+
+    `additionalProperties: false` plus an explicit `required` list is what stops a model
+    smuggling an unexpected field past the provider — the first of the four gates.
+    """
+    tools = openai_tools()
+    assert len(tools) == 10
+    for tool in tools:
+        assert tool["type"] == "function"
+        schema = tool["function"]["parameters"]  # type: ignore[index]
+        assert schema["additionalProperties"] is False
+        assert "required" in schema
 
 
 def test_unregistered_tool_cannot_be_registered(registry) -> None:  # type: ignore[no-untyped-def]

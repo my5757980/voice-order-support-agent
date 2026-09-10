@@ -54,82 +54,52 @@ def build_stt(**overrides: Any) -> tuple[Any | None, str]:
 
 
 def build_llm() -> tuple[Any, str]:
-    # Any OpenAI-compatible provider (Groq, Gemini, OpenAI, LLM Gateway) is preferred
-    # when configured — one adapter covers all four, so the choice is a .env line.
+    """Any OpenAI-compatible provider — Groq, Gemini, OpenAI — behind one adapter.
+
+    Which one is a `.env` line: `LLM_PROVIDER` plus the matching `<PROVIDER>_API_KEY`.
+    """
     from .llm.openai_compat import OpenAICompatLanguageModel, configured_provider
 
     selected = configured_provider()
-    if selected is not None:
-        provider, key = selected
-        return (
-            OpenAICompatLanguageModel(
-                api_key=key,
-                provider=provider,
-                model=os.environ.get("LLM_MODEL") or None,
-                max_tokens=int(os.environ.get("LLM_MAX_TOKENS", "320")),
-                system_prompt=load_persona(),
-                reasoning_effort=os.environ.get("LLM_REASONING_EFFORT") or None,
-            ),
-            provider,
-        )
-
-    api_key = _key("ANTHROPIC_API_KEY")
-    if api_key is None:
+    if selected is None:
         from .llm.fake import FakeLanguageModel
 
         return FakeLanguageModel(), "scripted"
 
-    from .llm.claude import ClaudeLanguageModel
-
+    provider, key = selected
     return (
-        ClaudeLanguageModel(
-            api_key=api_key,
-            model=os.environ.get("LLM_MODEL", "claude-opus-5"),
-            effort=os.environ.get("LLM_EFFORT", "low"),
+        OpenAICompatLanguageModel(
+            api_key=key,
+            provider=provider,
+            model=os.environ.get("LLM_MODEL") or None,
             max_tokens=int(os.environ.get("LLM_MAX_TOKENS", "320")),
             system_prompt=load_persona(),
+            reasoning_effort=os.environ.get("LLM_REASONING_EFFORT") or None,
         ),
-        "claude",
+        provider,
     )
 
 
 def build_tts() -> tuple[Any, str]:
-    # Preference order is deliberate. ElevenLabs first when its quota allows, because it
-    # is the only option with a server-side interrupt and character alignment. Groq
-    # Orpheus is the working fallback: no extra credential, honest capability loss
-    # documented in the adapter.
-    if os.environ.get("TTS_PROVIDER", "").strip().lower() == "groq" or (
-        _key("ELEVENLABS_API_KEY") is None and _key("GROQ_API_KEY") is not None
-    ):
-        groq_key = _key("GROQ_API_KEY")
-        if groq_key is not None:
-            from .tts.groq_orpheus import GroqSpeechSynthesizer
+    """Groq Orpheus, or the tone generator when no key is present.
 
-            return (
-                GroqSpeechSynthesizer(
-                    api_key=groq_key,
-                    voice=os.environ.get("TTS_VOICE", "hannah"),
-                ),
-                "groq-orpheus",
-            )
-
-    api_key = _key("ELEVENLABS_API_KEY")
-    voice_id = _key("ELEVENLABS_VOICE_ID")
-    if api_key is None or voice_id is None:
+    The tone generator is not a broken state: it makes barge-in demonstrable before any
+    key exists, which is what let the interruption path be built and tested first.
+    """
+    groq_key = _key("GROQ_API_KEY")
+    if groq_key is None:
         from .tts.fake import FakeSpeechSynthesizer
 
         return FakeSpeechSynthesizer(), "tone"
 
-    from .tts.elevenlabs import ElevenLabsSpeechSynthesizer
+    from .tts.groq_orpheus import GroqSpeechSynthesizer
 
     return (
-        ElevenLabsSpeechSynthesizer(
-            api_key=api_key,
-            voice_id=voice_id,
-            model_id=os.environ.get("TTS_MODEL", "eleven_flash_v2_5"),
-            optimize_streaming_latency=int(os.environ.get("TTS_OPTIMIZE_STREAMING_LATENCY", "4")),
+        GroqSpeechSynthesizer(
+            api_key=groq_key,
+            voice=os.environ.get("TTS_VOICE", "hannah"),
         ),
-        "elevenlabs",
+        "groq-orpheus",
     )
 
 
@@ -141,13 +111,6 @@ def modes() -> dict[str, str]:
     selected = configured_provider()
     return {
         "stt": "assemblyai" if _key("ASSEMBLYAI_API_KEY") else "text-only",
-        "llm": selected[0] if selected else ("claude" if _key("ANTHROPIC_API_KEY") else "scripted"),
-        "tts": (
-            "groq-orpheus"
-            if os.environ.get("TTS_PROVIDER", "").strip().lower() == "groq"
-            or (not _key("ELEVENLABS_API_KEY") and _key("GROQ_API_KEY"))
-            else "elevenlabs"
-            if _key("ELEVENLABS_API_KEY") and _key("ELEVENLABS_VOICE_ID")
-            else "tone"
-        ),
+        "llm": selected[0] if selected else "scripted",
+        "tts": "groq-orpheus" if _key("GROQ_API_KEY") else "tone",
     }

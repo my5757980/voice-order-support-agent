@@ -10,7 +10,8 @@ Get a voice turn round-tripping locally, then verify the constitution's gates ho
 
 - Python 3.11+
 - Node 20+
-- API keys: AssemblyAI, Anthropic, ElevenLabs
+- API keys: AssemblyAI and Groq (two, not three — Groq serves both the language model
+  and the speech synthesis)
 - A browser with microphone permission (Chrome or Edge recommended for AudioWorklet stability)
 
 ## 1. Configure
@@ -23,9 +24,7 @@ Fill in:
 
 ```bash
 ASSEMBLYAI_API_KEY=...
-ANTHROPIC_API_KEY=...
-ELEVENLABS_API_KEY=...
-ELEVENLABS_VOICE_ID=...
+GROQ_API_KEY=...
 
 # Tuning — every one of these is configuration, never a literal in code
 STT_SPEECH_MODEL=universal-3-5-pro
@@ -35,9 +34,11 @@ STT_END_OF_TURN_CONFIDENCE=0.4
 SPECULATIVE_THRESHOLD=0.7
 BARGE_IN_MIN_WORDS=2
 BARGE_IN_GRACE_SECONDS=1.0
-LLM_MODEL=claude-opus-5
-LLM_EFFORT=low
+LLM_PROVIDER=groq
+LLM_MODEL=openai/gpt-oss-120b
+LLM_REASONING_EFFORT=low
 LLM_MAX_TOKENS=320
+TTS_VOICE=hannah
 HOLDING_PHRASE_DELAY_MS=400
 DEMO_MODE=true
 ```
@@ -95,7 +96,7 @@ curl -s localhost:8000/metrics | grep -E 'turn_latency_e2e|tts_ttfb|llm_ttft|stt
 |---|---|---|
 | `stt.turn` | 300 ms | 500 ms |
 | `llm.ttft` | 450 ms | 800 ms |
-| `tts.ttfb` | 250 ms | **400 ms — the known risk** |
+| `tts.ttfb` | 250 ms | 400 ms — measured 610 ms p50 locally, see research.md R9 |
 | end-to-end | 1000 ms | 1500 ms |
 
 **Barge-in** — interrupt the agent mid-sentence:
@@ -121,14 +122,15 @@ The agent must **never** create the return before an explicit affirmative. Note 
 real answer, not a backchannel — that override is the `pending_confirmation` check, and it is the
 single most likely thing to regress.
 
-**Prompt caching** is working if this is non-zero after the second turn:
+**Adapter modes** — confirm which provider each slot is really using:
 
 ```bash
-curl -s localhost:8000/metrics | grep cache_read_input_tokens
+curl -s localhost:8000/api/health
+# {"adapters": {"stt": "assemblyai", "llm": "groq", "tts": "groq-orpheus"}, ...}
 ```
 
-A persistent zero means a silent invalidator — usually a timestamp in the system prompt or an
-unsorted tool list.
+`scripted` or `tone` means that slot fell back because its key is absent. That is a
+working state, not a broken one — but it is not what you want in a demo.
 
 ## Tests
 
@@ -153,6 +155,6 @@ pytest tests/unit/test_core_purity.py   # fails if any vendor SDK is imported un
 | Agent talks over you | `audio.flush` not reaching the browser, or playback is an `<audio>` element rather than an AudioWorklet ring buffer |
 | Agent stops on "mhm" | `BARGE_IN_MIN_WORDS` too low, or the backchannel set is missing tokens |
 | Agent ignores "yes" during confirmation | `pending_confirmation` not consulted **first** in the barge-in decision |
-| Long silence before speech | Check `llm.ttft` — likely thinking latency; confirm `LLM_EFFORT=low` and that caching is hitting |
+| Long silence before speech | Check `llm.ttft`. Measured from outside the US it is dominated by network round trip, not the model — see research.md R9 |
 | Choppy audio | Frames not exactly 1600 bytes, or capture running on the main thread instead of a worklet |
 | Crash at startup | Working as designed — a config error must fail fast, never default silently |

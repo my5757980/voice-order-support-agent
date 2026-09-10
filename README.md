@@ -14,9 +14,13 @@ Interrupt most voice agents and one of two things happens: they talk over you, o
 stop but keep the words they were saying in their memory. The second failure is quieter
 and worse — every following turn is reasoning about a sentence you never heard.
 
-This agent computes what you *actually heard*, from text-to-speech character alignment
-cross-referenced against the audio frames the browser's playback buffer genuinely
-released, and truncates its own memory to exactly that.
+This agent computes what you *actually heard* — from the audio frames the browser's
+playback buffer genuinely released, mapped back onto the text that produced them — and
+truncates its own memory to that prefix. Not to what the model generated.
+
+The resolution is per clause rather than per character, because the current speech
+provider returns no character alignment. That bound is honest and it is still bounded by
+audio that actually played, which is the part that matters.
 
 That property is only available because we took the harder path. An agent built on a
 managed voice API is handed turn-taking and never sees the seam.
@@ -54,7 +58,7 @@ BROWSER                        │  BACKEND (one asyncio task group per session)
   playback AudioWorklet ◀──────┼─── Orchestrator ──▶ ToolRegistry ──▶ SQLite
      ring buffer,              │         │              (4 gates)
      zeroed on interrupt       │         ▼
-                               │      Claude (streaming) ──▶ clause splitter ──▶ ElevenLabs
+                               │      LLM (streaming) ──▶ clause splitter ──▶ TTS
 ```
 
 Three design decisions worth knowing:
@@ -64,17 +68,18 @@ vendor supports the latter. Committed turns authorise memory writes and tool cal
 including "the customer confirmed the return" — an untrusted browser must not be the
 authority on what was committed.
 
-**Barge-in fires three things concurrently**: the TTS `clear_buffer`, a client-side
-`audio.flush`, and cancellation of the turn's task group. The server call stops the
-*provider*; only the client flush silences the ~200 ms already buffered in the browser.
-Waiting for one before the other measures a correct-looking interrupt latency while the
-agent keeps talking.
+**Barge-in fires concurrently, and the client half is the one that matters**: a
+`audio.flush` to the browser, cancellation of the turn's task group, and — where the
+provider supports it — a server-side stop. Only the client flush silences the ~200 ms
+already sitting in the browser's ring buffer. A design that waits for the server to
+acknowledge before flushing the client measures a correct-looking interrupt latency while
+the agent keeps talking.
 
-**Adaptive thinking stays on** in Claude despite the latency cost. With thinking
-disabled, Opus 5 can write a tool call into visible text instead of emitting a `tool_use`
-block — the turn succeeds, the tool never runs, nothing raises. Here that means the agent
-saying "I've started your return" when no return exists. `effort: "low"` buys the latency
-back safely.
+**The language model was chosen by measurement, not reputation.** Of four candidates only
+`openai/gpt-oss-120b` was both fast and able to emit `tool_calls` — and every tool in this
+project depends on tool calling. AssemblyAI's own LLM Gateway was evaluated first, since it
+would have needed no extra credential, and rejected on evidence: one model reachable on the
+free tier, `"does not support tools"`, and 4.9 s to first token.
 
 ## Run it
 
@@ -92,15 +97,15 @@ cd frontend && npm install && npm run dev
 
 Open <http://localhost:5173>, then type or say **"where's my order?"**
 
-With keys, copy `.env.example` to `.env` and fill in `ASSEMBLYAI_API_KEY`,
-`ANTHROPIC_API_KEY`, `ELEVENLABS_API_KEY`, `ELEVENLABS_VOICE_ID`. Each adapter switches
-independently — an AssemblyAI key alone gives real transcription with scripted replies.
-`GET /api/health` reports which mode each slot is in.
+With keys, copy `.env.example` to `.env` and fill in `ASSEMBLYAI_API_KEY` and
+`GROQ_API_KEY` — two credentials, since Groq serves both the language model and the
+speech synthesis. Each slot switches independently, so an AssemblyAI key alone gives real
+transcription with scripted replies. `GET /api/health` reports which mode each slot is in.
 
 ## Tests
 
 ```bash
-cd backend && pytest        # 159 tests, no network, no vendor account
+cd backend && pytest        # 160 tests, no network, no vendor account
 ```
 
 Two are worth reading:
@@ -114,7 +119,11 @@ Two are worth reading:
 ## Stack
 
 Python 3.11+ / FastAPI · TypeScript / Vite / AudioWorklet · SQLite ·
-AssemblyAI Universal-3.5 Realtime STT · Claude Opus 5 · ElevenLabs Flash v2.5
+**AssemblyAI Universal-3.5 Realtime STT** · Groq `openai/gpt-oss-120b` ·
+Groq / Canopy Labs Orpheus TTS
+
+The language model adapter is OpenAI-compatible, so Gemini or OpenAI are a `.env` line
+away. AssemblyAI is the one pinned vendor — it is the point of the project.
 
 ## Project documents
 

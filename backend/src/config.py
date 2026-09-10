@@ -28,9 +28,7 @@ class Settings(BaseSettings):
 
     # -- Vendor credentials. Never sent to the browser. -------------------
     assemblyai_api_key: str = Field(min_length=1)
-    anthropic_api_key: str = Field(min_length=1)
-    elevenlabs_api_key: str = Field(min_length=1)
-    elevenlabs_voice_id: str = Field(min_length=1)
+    groq_api_key: str = Field(min_length=1)
 
     # -- Speech to text ---------------------------------------------------
     stt_speech_model: str = "universal-3-5-pro"
@@ -42,15 +40,16 @@ class Settings(BaseSettings):
     stt_format_turns: bool = True
 
     # -- Language model ---------------------------------------------------
-    llm_model: str = "claude-opus-5"
-    llm_effort: Literal["low", "medium", "high", "xhigh", "max"] = "low"
+    llm_provider: Literal["groq", "gemini", "openai"] = "groq"
+    llm_model: str = "openai/gpt-oss-120b"
+    llm_reasoning_effort: Literal["low", "medium", "high"] = "low"
     llm_max_tokens: int = Field(default=320, ge=64, le=4096)
     llm_timeout_s: float = 3.0
 
     # -- Text to speech ---------------------------------------------------
-    tts_model: str = "eleven_flash_v2_5"
-    tts_optimize_streaming_latency: int = Field(default=4, ge=0, le=4)
-    tts_timeout_s: float = 3.0
+    tts_model: str = "canopylabs/orpheus-v1-english"
+    tts_voice: Literal["autumn", "diana", "hannah", "austin", "daniel", "troy"] = "hannah"
+    tts_timeout_s: float = 15.0
 
     # -- Barge-in ---------------------------------------------------------
     barge_in_min_words: int = Field(default=2, ge=1)

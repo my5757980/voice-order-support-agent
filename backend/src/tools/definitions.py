@@ -80,19 +80,23 @@ def _assert_coherent(specs: list[ToolSpec]) -> None:
         raise ValueError("duplicate tool names in contract")
 
 
-def anthropic_tools() -> list[dict[str, object]]:
-    """Tool definitions in the provider's wire format.
+def openai_tools() -> list[dict[str, object]]:
+    """Tool definitions in the wire format the LLM adapter actually sends.
 
-    `strict: true` is set on every tool so the provider guarantees `tool_use.input`
-    validates against the schema before it ever reaches us. Our own validation still
-    runs — this is defence in depth, not a replacement.
+    Built from `contracts/tools.schema.json`, so there is no second copy to drift. The
+    schemas carry `additionalProperties: false` and an explicit `required` list, which is
+    what lets a provider validate arguments before they ever reach us — our own
+    validation still runs on top, because provider-side strictness is a first line, not
+    a guarantee we control.
     """
     return [
         {
-            "name": s.name,
-            "description": s.description,
-            "input_schema": s.input_schema,
-            "strict": True,
+            "type": "function",
+            "function": {
+                "name": s.name,
+                "description": s.description,
+                "parameters": s.input_schema,
+            },
         }
         for s in load_specs()
     ]

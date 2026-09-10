@@ -216,14 +216,15 @@ Added by `/sp.plan` on 2026-09-09. See `specs/001-order-support-agent/plan.md` f
 - **Backend**: Python 3.11+, FastAPI + uvicorn, asyncio TaskGroup per session/turn
 - **Frontend**: TypeScript + Vite, AudioWorklet for capture (50 ms PCM16 @16 kHz) and playback (ring buffer)
 - **STT**: AssemblyAI v3 streaming WebSocket (`universal-3-5-pro`) — backend-owned socket, never browser
-- **LLM**: Claude Opus 5 (`claude-opus-5`), streaming, effort `low`, adaptive thinking ON, manual tool loop
-- **TTS**: ElevenLabs Flash v2.5 stream-input WebSocket (`clear_buffer` for barge-in)
+- **LLM**: Groq `openai/gpt-oss-120b` via an OpenAI-compatible adapter (also covers Gemini/OpenAI), streaming, manual tool loop
+- **TTS**: Groq / Canopy Labs Orpheus (`canopylabs/orpheus-v1-english`), REST, WAV 24 kHz resampled to 16 kHz
 - **Storage**: SQLite behind repository ports (seeded fixtures; simulated commerce backend)
 
 Non-obvious constraints worth remembering before editing this feature:
 
 - `backend/src/core/` must import **no** vendor SDK — enforced by `tests/unit/test_core_purity.py`
-- Thinking stays ON: disabling it on Opus 5 can emit a tool call as visible text, which would make
-  the agent claim an action it never performed (FR-030/SC-011 — zero tolerance)
-- Barge-in needs BOTH the TTS `clear_buffer` and the client-side `audio.flush`; the server call
-  alone does not stop audio already buffered in the browser
+- Two credentials only: AssemblyAI and Groq. Groq serves both the LLM and the TTS slot
+- Orpheus is REST, so there is no server-side `clear_buffer`; barge-in relies on the client flush,
+  and memory truncation is clause-resolution rather than character-resolution
+- The client-side `audio.flush` is the half of barge-in the shopper experiences; a server-side
+  stop alone never silences audio already buffered in the browser

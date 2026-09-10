@@ -7,6 +7,12 @@ All vendor facts below were retrieved from live documentation during planning, n
 Numbers marked **[vendor]** are documented provider claims; numbers marked **[ours]** are budgets
 we chose. The distinction matters: we hold ourselves to ours and measure theirs.
 
+> **Read R9 first.** R3 and R4 were superseded during implementation: Claude needs a paid
+> key and the ElevenLabs free quota was exhausted. The system runs on **AssemblyAI STT +
+> Groq LLM + Groq Orpheus TTS**. R3 and R4 are kept as the decision trail — including the
+> reasoning that still applies to any model with adaptive thinking — but they are not a
+> description of the current stack.
+
 ---
 
 ## R1. AssemblyAI v3 streaming contract

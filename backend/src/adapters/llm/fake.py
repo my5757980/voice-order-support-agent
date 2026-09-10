@@ -1,12 +1,12 @@
 """Scripted language model.
 
-Two jobs. In tests it replays deterministic token streams. In `DEMO_MODE` without an
-Anthropic key it drives a genuinely working conversation against the *real* tool
-registry and the *real* seeded store — so the whole pipeline, including the four tool
-gates and the confirmation ritual, is exercised before any key exists.
+Two jobs. In tests it replays deterministic token streams. With no LLM key configured it
+drives a genuinely working conversation against the *real* tool registry and the *real*
+seeded store — so the whole pipeline, including the four tool gates and the confirmation
+ritual, was exercised before any key existed.
 
-It is a rule engine, not a model. It is not pretending otherwise, and it is never on
-the path once `ANTHROPIC_API_KEY` is set.
+It is a rule engine, not a model. It is not pretending otherwise, and it leaves the path
+the moment a provider key is present.
 """
 
 from __future__ import annotations
