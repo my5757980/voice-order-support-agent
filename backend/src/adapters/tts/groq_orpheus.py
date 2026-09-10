@@ -50,6 +50,25 @@ TARGET_RATE = 16_000   # what the rest of the pipeline speaks
 FRAME_SAMPLES = 800    # 50 ms at 16 kHz — matches the capture format exactly
 
 
+_FAILURE_MEMORY = 32
+"""Turns to remember a synthesis failure for. Bounded because an unbounded map keyed by
+turn id is a slow leak on a long session."""
+
+
+def _classify(status: int) -> str:
+    """Provider status to a cause the shopper can be told about.
+
+    Deliberately coarse. The distinction that matters to someone waiting is between
+    "try again shortly" and "this is not going to work right now"; the exact status code
+    belongs in metrics, never in anything spoken or shown.
+    """
+    if status == 429:
+        return "rate_limited"
+    if status in (401, 403):
+        return "unauthorized"
+    return "unavailable"
+
+
 def _pcm_from_wav(data: bytes) -> bytes:
     """Extract the PCM payload from a RIFF/WAVE container.
 
@@ -112,6 +131,7 @@ class GroqSpeechSynthesizer:
         # drained, and a turn that hung until its timeout. Recording cancelled turn ids
         # makes "turn A was interrupted" a fact that stays true.
         self._cancelled: set[str] = set()
+        self._failures: dict[str, str] = {}
         self._active_turn = ""
         self._tasks: set[asyncio.Task[None]] = set()
         self.submitted: list[str] = []
@@ -154,9 +174,11 @@ class GroqSpeechSynthesizer:
             )
             if response.status_code != 200:
                 metrics.inc("llm_errors_total", {"class": f"tts_http_{response.status_code}"})
+                self._record_failure(turn_id, _classify(response.status_code))
                 return
         except (httpx.TimeoutException, httpx.HTTPError):
             metrics.inc("llm_errors_total", {"class": "tts_timeout"})
+            self._record_failure(turn_id, "timeout")
             return
 
         if turn_id in self._cancelled:
@@ -187,6 +209,26 @@ class GroqSpeechSynthesizer:
                     char_offset=char_offset,
                 )
             )
+
+    def _record_failure(self, turn_id: str, kind: str) -> None:
+        """Remember that a turn produced no audio, so the turn can say so.
+
+        Counting the failure in metrics tells an operator. It tells the shopper nothing,
+        and the shopper is the one sitting in silence watching a reply they cannot hear.
+        The first failure of a turn is the honest one to report — later clauses of an
+        already-failing turn add nothing.
+        """
+        self._failures.setdefault(turn_id, kind)
+        while len(self._failures) > _FAILURE_MEMORY:
+            self._failures.pop(next(iter(self._failures)))
+
+    def synthesis_error(self, turn_id: str) -> str | None:
+        """Why this turn produced no audio, read once and forgotten.
+
+        Popped rather than read so a turn is reported exactly once, and so the map stays
+        bounded by turns in flight rather than by session length.
+        """
+        return self._failures.pop(turn_id, None)
 
     async def drain(self, *, turn_id: str = "", timeout: float = 20.0) -> None:
         """Wait until every submitted clause has been synthesized and emitted.

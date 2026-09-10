@@ -30,6 +30,34 @@ from src.session.actor import SessionActor
 from src.session.tokens import TokenStore
 from src.tools.handlers import build_registry
 
+
+def _load_env_file() -> None:
+    """Populate os.environ from a local .env, without overriding what is already set.
+
+    quickstart.md tells you to copy .env.example to .env and run uvicorn. Nothing was
+    reading that file, so the keys were silently ignored and the app fell back to the
+    scripted adapters — working, but not what anyone following the instructions expected,
+    and with no error to explain it.
+
+    Real environment variables win. On Replit the keys arrive as Secrets, and a stray
+    .env in the image must never shadow them.
+    """
+    for candidate in (Path(".env"), Path("../.env"), Path(__file__).resolve().parents[2] / ".env"):
+        if not candidate.is_file():
+            continue
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key, value = key.strip(), value.strip().strip('"').strip("'")
+            if value and key not in os.environ:
+                os.environ[key] = value
+        return
+
+
+_load_env_file()
+
 DB_PATH = os.environ.get("DATABASE_PATH", "./data/orders.db")
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 

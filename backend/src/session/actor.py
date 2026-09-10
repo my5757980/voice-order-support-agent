@@ -41,6 +41,16 @@ MAX_SPEECH_DRAIN_S = 20.0
 than holding the session open indefinitely."""
 
 
+_SPEECH_ERROR_TEXT: dict[str, str] = {
+    "rate_limited": "Voice output has hit its rate limit — the reply is written above.",
+    "unauthorized": "Voice output is unavailable — the reply is written above.",
+    "unavailable": "Voice output is unavailable right now — the reply is written above.",
+    "timeout": "Voice output timed out — the reply is written above.",
+}
+"""What the shopper is told when a reply exists but could not be spoken. One line each,
+about what they can do, never about which provider failed or why."""
+
+
 class SessionActor:
     def __init__(
         self,
@@ -74,6 +84,7 @@ class SessionActor:
         self._turn_task: asyncio.Task[None] | None = None
         self._timings: TurnTimings | None = None
         self._agent_speaking = False
+        self._turn_in_flight = False
         self._last_spoke_at = self._clock.now()
         self._awaiting_confirmation = False
         self._current_turn_id = ""
@@ -108,6 +119,7 @@ class SessionActor:
         await self._send_control(
             {"type": "transcript.committed", "text": GREETING, "turn_order": 0, "speaker": "agent"}
         )
+        self._turn_in_flight = True
         self._turn_task = asyncio.create_task(self._run_greeting(turn_id))
 
     async def _run_greeting(self, turn_id: str) -> None:
@@ -126,6 +138,26 @@ class SessionActor:
         except* asyncio.CancelledError:
             await self._finish_turn(timings, status="interrupted")
 
+    @property
+    def _agent_has_floor(self) -> bool:
+        """The agent is speaking, or has started a turn and is about to.
+
+        `_agent_speaking` only becomes true on the first audio frame. With a real
+        synthesizer that is 1.3-2 s after the turn starts — measured, not guessed — and
+        for that entire window an interruption used to be dropped on the floor. Then the
+        audio arrived anyway and the agent talked over the shopper it had just ignored.
+        The greeting is the worst case, because talking over the greeting is exactly what
+        an impatient shopper does.
+
+        Holding the floor starts when the turn starts. `_turn_in_flight` is cleared in
+        `_finish_turn`, which runs inside the turn task, so it closes the window between
+        a turn finishing and its task being marked done — where the task check alone
+        would report a floor nobody holds.
+        """
+        if self._turn_task is None or self._turn_task.done():
+            return False
+        return self._turn_in_flight
+
     # -- inbound -----------------------------------------------------------
 
     async def on_partial(self, text: str) -> None:
@@ -133,7 +165,7 @@ class SessionActor:
         the live pane and the barge-in decision."""
         await self._send_control({"type": "transcript.partial", "text": text, "turn_order": 0})
 
-        if not self._agent_speaking:
+        if not self._agent_has_floor:
             return
 
         verdict = decide(
@@ -162,7 +194,7 @@ class SessionActor:
             confidence=confidence,
             last_dispatched=self._spec_text,
             awaiting_confirmation=self._awaiting_confirmation,
-            agent_speaking=self._agent_speaking,
+            agent_speaking=self._agent_has_floor,
             config=self._spec_cfg,
         )
         if verdict is not Verdict.DISPATCH:
@@ -221,7 +253,7 @@ class SessionActor:
 
     async def on_committed(self, text: str) -> None:
         """A committed turn. This is the first point anything enters memory."""
-        if self._agent_speaking:
+        if self._agent_has_floor:
             await self.interrupt()
 
         turn_id = uuid.uuid4().hex[:12]
@@ -262,6 +294,7 @@ class SessionActor:
         self._cancel_speculation()
 
         # One task group per turn. Cancelling it cancels everything below.
+        self._turn_in_flight = True
         self._turn_task = asyncio.create_task(self._run_turn(turn_id, promoted=promoted))
 
     async def interrupt(self) -> None:
@@ -275,7 +308,7 @@ class SessionActor:
         (b) is the one the shopper experiences. (a) alone leaves ~200 ms of audio already
         buffered in the browser still playing.
         """
-        if not self._agent_speaking:
+        if not self._agent_has_floor:
             return
         self._interrupt_started = time.monotonic()
 
@@ -288,6 +321,7 @@ class SessionActor:
             self._turn_task.cancel()
 
         self._agent_speaking = False
+        self._turn_in_flight = False
         self._last_spoke_at = self._clock.now()
         if self._sm.can(Trigger.BARGE_IN):
             self._sm.fire(Trigger.BARGE_IN)
@@ -478,8 +512,29 @@ class SessionActor:
                 await self._emit_state()
             await self._send_audio(frame.pcm)
 
+    async def _report_synthesis_failure(self, turn_id: str) -> None:
+        """Say out loud that the agent could not say anything.
+
+        A turn whose synthesis failed still completes: the reply is written, the tools
+        ran, memory is correct — there is simply no audio. Left unreported that reads as
+        a broken app, because the one thing the shopper is waiting for never arrives and
+        nothing on screen admits it. The text is deliberately about the shopper's
+        situation and never about the provider (NFR: no vendor error text reaches a
+        shopper).
+        """
+        probe = getattr(self._tts, "synthesis_error", None)
+        if probe is None:
+            return
+        kind = probe(turn_id)
+        if kind is None:
+            return
+        await self._send_control(
+            {"type": "error", "code": f"speech_{kind}", "message": _SPEECH_ERROR_TEXT[kind]}
+        )
+
     async def _finish_turn(self, timings: TurnTimings, *, status: str) -> None:
         self._agent_speaking = False
+        self._turn_in_flight = False
         self._last_spoke_at = self._clock.now()
         if self._sm.can(Trigger.RESPONSE_COMPLETE):
             self._sm.fire(Trigger.RESPONSE_COMPLETE)
@@ -492,6 +547,9 @@ class SessionActor:
             {"type": "timing", "turn_id": timings.turn_id, "spans": spans}
         )
         await self._emit_state()
+        # Before `agent.done`: that message is terminal for a turn, so anything a
+        # consumer needs to know about the turn has to precede it.
+        await self._report_synthesis_failure(timings.turn_id)
         await self._send_control(
             {"type": "agent.done", "turn_id": timings.turn_id, "status": status}
         )
