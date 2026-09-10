@@ -497,12 +497,12 @@ can hand off to a human with context.
   - **Done when**: `docker run -p 8000:8000` serves a fully working app with no separate frontend host and no CORS configuration.
   - **Effort**: M · **Critical path**: Yes
 
-- [ ] T077 Replit deployment in `.replit` and `replit.nix`
+- [x] T077 Replit deployment in `.replit` and `replit.nix`
   - **What**: Deploy the FastAPI process to Replit as a persistent (Reserved VM / Autoscale) deployment. Secrets as Replit Secrets, never committed. **Replit is mandated** — the Rule Book permits only Streamlit, Replit, or Vercel, and Replit is the only one of the three that supports a long-lived WebSocket server.
   - **Done when**: the public Replit URL completes a full voice turn from a cold browser; both WebSocket endpoints work over TLS; no secret appears in the repo or in any client payload.
   - **Effort**: L · **Critical path**: Yes
 
-- [ ] T077b ⚠️ Re-measure latency **on the deployed instance** in `backend/scripts/spike_*.py`
+- [x] T077b ⚠️ Re-measure latency **on the deployed instance** in `backend/scripts/spike_*.py`
   - **What**: Re-run the T005/T006/T033 measurements from the Replit deployment rather than localhost.
   - **Done when**: deployed p50/p95 are recorded against `budgets.yaml`. **Replit gives no region pinning**, so geographic RTT is now an uncontrolled variable — a budget that passes locally and fails deployed has not been met. If deployed latency misses badly, tune buffer sizes and holding-phrase thresholds rather than pretending the local numbers count.
   - **Effort**: M · **Critical path**: Yes

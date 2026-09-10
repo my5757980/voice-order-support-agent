@@ -335,3 +335,66 @@ Orpheus is REST, not a socket, so two things R4 chose ElevenLabs for are gone:
   character-exact. Still bounded by audio genuinely played, at coarser resolution.
 
 Recoverable with a fresh ElevenLabs account; the adapter is still in the tree.
+
+---
+
+## R10. T077b — measured on the deployed instance (2026-09-10)
+
+Deployed to Replit (US) at `…pike.replit.dev`, both keys set as Replit Secrets,
+`/api/health` reporting `{stt: assemblyai, llm: groq, tts: groq-orpheus}`. This is the
+measurement R9 said was the only one that could actually close the gates.
+
+### The result
+
+| Span | Budget p95 / hard fail **[ours]** | Local (Pakistan) | **Deployed (US)** | Verdict |
+|---|---|---|---|---|
+| `llm.ttft` | 450 / 800 ms | 1,500 ms | **1,063 ms** | over hard fail |
+| `tool` | — | 0 ms | **11 ms** | fine |
+| `tts.ttfb` | 250 / 400 ms | 2,437 ms | 1,723 ms → **~660 ms corrected** | over hard fail |
+| end-to-end | 1,000 / 1,500 ms | 2,891 ms | **2,609 ms** | over hard fail |
+
+### R9's central claim was wrong, and this is the correction
+
+R9 argued that roughly 900 ms of the local figures was Pakistan→US network round trip,
+and implied the deployed numbers would therefore land near budget. **They did not.**
+End-to-end improved from 2,891 ms to 2,609 ms — about 280 ms, not 900.
+
+The reasoning error is worth naming: the spans are recorded **server-side**, so a client's
+distance from the server was never inside them. What the deployment removed was the
+*server's* distance from Groq, which is real but much smaller than the client RTT I had
+measured and then wrongly attributed to the same figures. The 929 ms RTT number was
+correct; using it to predict these spans was not.
+
+**The models are genuinely slower than the budgets.** That is the honest finding.
+
+### A measurement defect found in the same run
+
+`tts.ttfb` was being recorded from **turn start** rather than from the LLM's first token,
+which is the interval the constitution's budget actually names. It therefore included the
+whole language-model latency and reported ~1,723 ms where the synthesis interval was
+around 660 ms — roughly three times the thing being judged.
+
+Fixed (`TurnTimings.mark_since`). Every prior `tts.ttfb` figure in this document, R9
+included, was inflated the same way. The corrected value still exceeds the 400 ms hard
+fail, so the conclusion does not change — but the number that decision rests on is now
+the right number.
+
+### Where this leaves the budgets
+
+**No budget is amended here.** The constitution requires that through governance, with
+evidence, and the choice belongs to the project architect. The options, with what each
+actually costs:
+
+1. **Implement speculative dispatch (T054).** This is the designed mitigation and it is
+   still unbuilt. It dispatches the model on a high-confidence partial turn, so the
+   1,063 ms of `llm.ttft` runs during the shopper's trailing silence instead of after it.
+   It cannot help `tts.ttfb`, and it is the only option that improves what the shopper
+   perceives without changing a provider.
+2. **Change the speech provider.** ~660 ms against a 400 ms hard fail is the largest
+   single gap. A streaming TTS would also restore `clear_buffer` and character alignment,
+   both of which were lost with Orpheus.
+3. **Amend the budgets to what free-tier providers can deliver**, with these measurements
+   as the evidence, and say so plainly rather than reporting a pass that is not one.
+
+Doing none of these and quoting the budgets as met is the one option the constitution
+rules out.
