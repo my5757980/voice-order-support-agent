@@ -41,3 +41,6 @@ frontend/public/worklets/
 
 # Ad-hoc screenshots taken while driving the app. Submission images live in docs/.
 /ui-*.png
+
+# Demo recording working directory — raw takes, muxed output lives in docs/.
+.demo-recording/

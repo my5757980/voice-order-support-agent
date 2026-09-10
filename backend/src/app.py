@@ -58,6 +58,16 @@ def _load_env_file() -> None:
 
 _load_env_file()
 
+if factory.demo_mode():
+    # A mode that quietly replaces every provider with a scripted stand-in is the one
+    # configuration that can look completely healthy while proving nothing. `.env.example`
+    # shipped it switched on, so this is not hypothetical.
+    print(
+        "WARNING: DEMO_MODE is on - speech, model and synthesis are all scripted. "
+        "Set DEMO_MODE=false for a real conversation.",
+        flush=True,
+    )
+
 DB_PATH = os.environ.get("DATABASE_PATH", "./data/orders.db")
 FRONTEND_DIST = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 
