@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Voice Order Support Agent — Tool Contracts",
+  "version": "1.0.0",
+  "feature": "001-order-support-agent",
+  "notes": [
+    "Every tool sets strict:true at the provider boundary, which requires additionalProperties:false and an explicit required list on every input_schema.",
+    "customer_id is DELIBERATELY absent from every schema. Customer scoping is applied server-side from the authenticated session (FR-003, TC-003). If the model proposes a customer identifier it is ignored, not honoured.",
+    "latency_class is a required registry attribute, not a model-visible field. An unclassified tool MUST NOT be registered (TC-001).",
+    "state_changing tools require a confirmed PendingAction before dispatch (FR-023) and derive an idempotency key from turn_id (TC-004).",
+    "speculative_safe:false means the tool may never run during a speculative dispatch, enforced by the ToolRegistry call context rather than by prompting."
+  ],
+  "tools": [
+    {
+      "name": "list_recent_orders",
+      "latency_class": "fast",
+      "state_changing": false,
+      "speculative_safe": true,
+      "description": "List the shopper's recent orders so the agent can identify which order they mean. Returns the most distinguishing attributes for disambiguation.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["lookback_days", "limit"],
+        "properties": {
+          "lookback_days": { "type": "integer", "minimum": 1, "maximum": 365, "description": "How far back to search. Default 90." },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 10 }
+        }
+      },
+      "returns": {
+        "orders": [{ "order_id": "str", "placed_at": "iso8601", "status": "str", "item_summary": "str", "total": "str" }]
+      },
+      "errors": ["no_orders_found"]
+    },
+    {
+      "name": "get_order",
+      "latency_class": "fast",
+      "state_changing": false,
+      "speculative_safe": true,
+      "description": "Full detail of one order including line items and per-item return eligibility.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref"],
+        "properties": {
+          "order_ref": { "type": "string", "minLength": 4, "description": "Full order id, or the final 4 characters for a partial match (FR-021)." }
+        }
+      },
+      "returns": {
+        "order_id": "str", "status": "str", "placed_at": "iso8601", "total": "str",
+        "line_items": [{ "line_item_id": "str", "product_name": "str", "quantity": "int", "return_state": "str", "return_window_closes_at": "iso8601|null" }],
+        "shipment_count": "int"
+      },
+      "errors": ["order_not_found", "ambiguous_partial_reference"]
+    },
+    {
+      "name": "get_shipment_tracking",
+      "latency_class": "fast",
+      "state_changing": false,
+      "speculative_safe": true,
+      "description": "Delivery progress for an order. Returns one entry per shipment; an order may have several (split shipments).",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref"],
+        "properties": { "order_ref": { "type": "string", "minLength": 4 } }
+      },
+      "returns": {
+        "shipments": [{ "carrier": "str", "tracking_reference": "str", "latest_scan_location": "str|null", "latest_scan_at": "iso8601|null", "expected_delivery": "date|null" }]
+      },
+      "errors": ["order_not_found", "not_yet_shipped"],
+      "contract_note": "not_yet_shipped is a first-class result, not a failure. The agent MUST NOT state a carrier or tracking number when it is returned (FR-019)."
+    },
+    {
+      "name": "get_product_info",
+      "latency_class": "fast",
+      "state_changing": false,
+      "speculative_safe": true,
+      "description": "Attributes and care information for a product the shopper purchased.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product_ref"],
+        "properties": { "product_ref": { "type": "string", "minLength": 1 } }
+      },
+      "returns": { "name": "str", "attributes": "object", "care_text": "str|null" },
+      "errors": ["product_not_found"],
+      "contract_note": "Merchant-supplied free text. Rendered into the prompt inside a delimited block declared non-authoritative; treated as data, never instructions (FR-049, TC-006)."
+    },
+    {
+      "name": "get_policy",
+      "latency_class": "fast",
+      "state_changing": false,
+      "speculative_safe": true,
+      "description": "Store policy on a topic, plus the parameters needed to apply it to a specific order.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["topic"],
+        "properties": {
+          "topic": { "type": "string", "enum": ["return_window", "refund_timing", "shipping", "cancellation", "address_change"] }
+        }
+      },
+      "returns": { "topic": "str", "body": "str", "params": "object" },
+      "errors": ["policy_not_found"]
+    },
+
+    {
+      "name": "create_return",
+      "latency_class": "fast",
+      "state_changing": true,
+      "speculative_safe": false,
+      "requires_confirmation": true,
+      "description": "Create a return for specific line items. Requires an explicit confirmed read-back first.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref", "line_item_ids", "reason"],
+        "properties": {
+          "order_ref": { "type": "string", "minLength": 4 },
+          "line_item_ids": { "type": "array", "minItems": 1, "items": { "type": "string" } },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      },
+      "returns": { "return_id": "str", "status": "str", "refund_estimate_days": "int", "instructions": "str", "deduplicated": "bool" },
+      "errors": ["order_not_found", "return_window_closed", "already_returned", "not_returnable", "backend_error"],
+      "contract_note": "Idempotency key derived from turn_id and enforced by a UNIQUE database constraint. A repeat returns the existing row with deduplicated:true — it never creates a second return and never errors (FR-029)."
+    },
+    {
+      "name": "cancel_order",
+      "latency_class": "fast",
+      "state_changing": true,
+      "speculative_safe": false,
+      "requires_confirmation": true,
+      "description": "Cancel an order that has not yet shipped.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref"],
+        "properties": { "order_ref": { "type": "string", "minLength": 4 } }
+      },
+      "returns": { "order_id": "str", "status": "str", "deduplicated": "bool" },
+      "errors": ["order_not_found", "already_shipped", "already_cancelled", "backend_error"],
+      "contract_note": "already_shipped MUST lead the agent to offer a return instead of refusing flatly (FR-027, VID-015)."
+    },
+    {
+      "name": "update_shipping_address",
+      "latency_class": "fast",
+      "state_changing": true,
+      "speculative_safe": false,
+      "requires_confirmation": true,
+      "description": "Change the delivery address of an order that has not yet shipped.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref", "address"],
+        "properties": {
+          "order_ref": { "type": "string", "minLength": 4 },
+          "address": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["line1", "city", "postal_code", "country"],
+            "properties": {
+              "line1": { "type": "string" },
+              "line2": { "type": "string" },
+              "city": { "type": "string" },
+              "region": { "type": "string" },
+              "postal_code": { "type": "string" },
+              "country": { "type": "string", "minLength": 2, "maxLength": 2 }
+            }
+          }
+        }
+      },
+      "returns": { "order_id": "str", "address_applied": "object", "deduplicated": "bool" },
+      "errors": ["order_not_found", "already_shipped", "invalid_address", "backend_error"],
+      "contract_note": "The full address is read back aloud before applying (FR-028)."
+    },
+
+    {
+      "name": "request_policy_exception",
+      "latency_class": "slow",
+      "state_changing": true,
+      "speculative_safe": false,
+      "requires_confirmation": false,
+      "description": "Ask a human to consider an out-of-policy request. The agent has no authority to grant exceptions itself.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["order_ref", "reason"],
+        "properties": {
+          "order_ref": { "type": "string", "minLength": 4 },
+          "reason": { "type": "string", "minLength": 1, "maxLength": 1000 }
+        }
+      },
+      "returns": { "case_ref": "str", "expected_response_hours": "int" },
+      "errors": ["order_not_found", "backend_error"],
+      "contract_note": "Slow class — a holding phrase fires if it has not returned within 400 ms (FR-050)."
+    },
+    {
+      "name": "escalate_to_human",
+      "latency_class": "slow",
+      "state_changing": true,
+      "speculative_safe": false,
+      "requires_confirmation": false,
+      "description": "Hand off to a human with full context. Called immediately on explicit request, with no reason required and no argument.",
+      "input_schema": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["summary", "order_refs", "actions_taken"],
+        "properties": {
+          "summary": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "order_refs": { "type": "array", "items": { "type": "string" } },
+          "actions_taken": { "type": "array", "items": { "type": "string" } }
+        }
+      },
+      "returns": { "ticket_id": "str", "expected_response_hours": "int" },
+      "errors": ["backend_error"],
+      "contract_note": "Never gated behind a reason, a retry, or an argument from the agent (FR-032). The transcript pointer is attached server-side, not passed by the model."
+    }
+  ]
+}

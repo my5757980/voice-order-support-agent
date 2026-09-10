@@ -1,0 +1,23 @@
+entrypoint = "backend/src/app.py"
+modules = ["python-3.11", "nodejs-20"]
+
+# Replit is not a preference — the lablab.ai Rule Book permits only Streamlit, Replit or
+# Vercel as the demo platform, and Replit is the only one of the three that runs a
+# persistent process capable of holding long-lived WebSocket servers.
+run = "bash scripts/start.sh"
+
+[deployment]
+run = ["bash", "scripts/start.sh"]
+deploymentTarget = "cloudrun"
+
+[[ports]]
+localPort = 8000
+externalPort = 80
+
+[env]
+PYTHONUNBUFFERED = "1"
+PYTHONPATH = "backend"
+DATABASE_PATH = "./data/orders.db"
+
+[nix]
+channel = "stable-24_05"

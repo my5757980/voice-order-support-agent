@@ -1,0 +1,31 @@
+# Secrets — never commit. Three vendor keys live here.
+.env
+.env.local
+*.key
+
+# Data
+data/
+*.db
+*.sqlite3
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
+.vite/
+
+# Tooling
+.playwright-mcp/
+.DS_Store
+*.log

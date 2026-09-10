@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Voice order support agent — interruption-faithful conversation on AssemblyAI realtime speech-to-text" />
+    <title>Voice Order Support</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true"></span>
+          <div class="brand-text">
+            <h1>Voice Order Support</h1>
+            <p>Realtime STT · owned orchestration</p>
+          </div>
+        </div>
+
+        <div class="topbar-right">
+          <div class="state-pill" id="state-pill" data-state="idle">
+            <span class="state-dot" aria-hidden="true"></span>
+            <span id="state-label">Idle</span>
+          </div>
+          <button class="ghost-btn" id="theme-btn" type="button" aria-label="Toggle colour theme">
+            <span id="theme-icon">◐</span>
+          </button>
+        </div>
+      </header>
+
+      <main class="workspace">
+        <!-- Conversation -->
+        <section class="panel conversation" aria-label="Conversation">
+          <div class="panel-head">
+            <h2>Conversation</h2>
+            <span class="hint" id="turn-count">0 turns</span>
+          </div>
+
+          <div class="transcript" id="transcript" role="log" aria-live="polite">
+            <div class="empty-state" id="empty-state">
+              <div class="empty-orb" aria-hidden="true"></div>
+              <p class="empty-title">Ready when you are</p>
+              <p class="empty-sub">
+                Start the mic and ask about an order. Interrupt any time — the agent
+                stops, and remembers only what you actually heard.
+              </p>
+            </div>
+          </div>
+
+          <div class="composer">
+            <button class="mic-btn" id="mic-btn" type="button" aria-pressed="false">
+              <span class="orb" id="orb" aria-hidden="true">
+                <span class="orb-ring r1"></span>
+                <span class="orb-ring r2"></span>
+                <span class="orb-ring r3"></span>
+                <span class="orb-core"></span>
+              </span>
+              <span class="mic-label" id="mic-label">Start</span>
+            </button>
+
+            <form class="text-fallback" id="text-form" autocomplete="off">
+              <input
+                id="text-input"
+                type="text"
+                placeholder="Or type instead…"
+                aria-label="Type a message instead of speaking"
+              />
+              <button type="submit" class="send-btn" aria-label="Send">↵</button>
+            </form>
+          </div>
+        </section>
+
+        <!-- Instrument panel -->
+        <aside class="panel signal" aria-label="Signal">
+          <div class="panel-head">
+            <h2>Signal</h2>
+            <span class="hint" id="conn-label">Offline</span>
+          </div>
+
+          <div class="signal-body">
+            <div class="metric-row">
+              <div class="metric">
+                <span class="metric-value" id="m-e2e">—</span>
+                <span class="metric-label">End to end</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value" id="m-barge">—</span>
+                <span class="metric-label">Interrupt</span>
+              </div>
+              <div class="metric">
+                <span class="metric-value" id="m-turns">0</span>
+                <span class="metric-label">Turns</span>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h3>Latency waterfall</h3>
+              <div class="waterfall" id="waterfall">
+                <p class="muted">Complete a turn to see the breakdown.</p>
+              </div>
+            </div>
+
+            <div class="subsection">
+              <h3>On screen</h3>
+              <div class="refs" id="refs">
+                <p class="muted">
+                  Tracking numbers and order references appear here instead of being
+                  read aloud.
+                </p>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </main>
+
+      <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    </div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
