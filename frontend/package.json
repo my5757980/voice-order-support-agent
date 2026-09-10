@@ -7,7 +7,10 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:worklets": "node scripts/build-worklets.mjs",
+    "prebuild": "node scripts/build-worklets.mjs",
+    "predev": "node scripts/build-worklets.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.3",

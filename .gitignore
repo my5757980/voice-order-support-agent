@@ -34,3 +34,10 @@ page-*.yml
 console-*.log
 .DS_Store
 *.log
+
+# Generated from src/worklets/*.worklet.ts by scripts/build-worklets.mjs on every
+# build and every dev start. Committing them would let a stale copy ship.
+frontend/public/worklets/
+
+# Ad-hoc screenshots taken while driving the app. Submission images live in docs/.
+/ui-*.png

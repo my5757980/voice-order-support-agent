@@ -116,22 +116,34 @@ micBtn.addEventListener("click", async () => {
   }
 
   try {
+    // Output first, and before the sockets: the backend greets as soon as both are
+    // open, so the playback node has to exist before the greeting can arrive.
+    await audio.startPlayback();
     await transport.connect();
-    await audio.start();
-    transport.send({ type: "mic.state", active: true });
+
+    // Then the microphone. A refusal here is not a failed session — the shopper types
+    // and still hears every reply, which is the whole point of the text fallback.
+    const mic = await audio.startCapture();
+    transport.send({ type: "mic.state", active: mic === "capturing" });
     ui.setMicActive(true);
-    ui.setState("listening");
+    if (mic === "capturing") {
+      ui.setState("listening");
+    } else {
+      ui.setState("idle");
+      ui.notify(
+        mic === "blocked"
+          ? "Microphone blocked — type below, you'll still hear the replies"
+          : "No microphone found — type below, you'll still hear the replies",
+        true,
+      );
+    }
   } catch (err) {
-    // Mic denial and backend-down are different problems and deserve different words —
-    // "something went wrong" would leave the shopper with nothing to act on.
-    const message =
-      err instanceof DOMException && err.name === "NotAllowedError"
-        ? "Microphone blocked — you can type instead"
-        : err instanceof Error
-          ? err.message
-          : "Could not start the session";
-    ui.notify(message, true);
+    // Backend-down and no-audio-output are different problems and deserve different
+    // words — "something went wrong" would leave the shopper with nothing to act on.
+    ui.notify(err instanceof Error ? err.message : "Could not start the session", true);
     await audio.stop();
+    transport.close();
+    ui.setConnected(false);
   }
 });
 
@@ -146,8 +158,10 @@ textForm.addEventListener("submit", (e) => {
     ui.notify("Start the session first", true);
     return;
   }
+  // Rendered when the server echoes transcript.committed, exactly as a spoken turn is.
+  // Drawing it here as well showed every typed turn twice, and made the text path the
+  // one place where the pane displayed something the orchestrator had not accepted.
   transport.send({ type: "text.input", text });
-  ui.commitTurn(text, "shopper");
   textInput.value = "";
 });
 
