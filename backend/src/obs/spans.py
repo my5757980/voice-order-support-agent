@@ -47,10 +47,26 @@ class TurnTimings:
         finally:
             self.record(name, (time.monotonic() - start) * 1000)
 
+    def mark_since(self, name: str, other: str) -> float:
+        """Record `name` as the interval since `other` was marked.
+
+        The constitution budgets `tts.ttfb` as "LLM first token → TTS first audio byte",
+        not "turn start → first audio byte". Measuring from turn start silently folds the
+        model's own time into the synthesis budget and makes the number roughly three
+        times the thing being judged. A span must measure the interval its budget names.
+        """
+        base = self.spans.get(other)
+        elapsed = (time.monotonic() - self._started) * 1000
+        ms = elapsed - base if base is not None else elapsed
+        self.record(name, max(0.0, ms))
+        return self.spans[name]
+
     def mark_from_turn_start(self, name: str) -> float:
-        """Record elapsed time since the turn began — used for cumulative marks like
-        `llm.ttft` and `tts.ttfb`, which are measured from the committed turn rather
-        than from the start of their own operation."""
+        """Record elapsed time since the turn began.
+
+        Correct for `llm.ttft`, whose budget is measured from the committed turn. Spans
+        whose budget names a different origin use `mark_since` instead.
+        """
         ms = (time.monotonic() - self._started) * 1000
         self.record(name, ms)
         return ms

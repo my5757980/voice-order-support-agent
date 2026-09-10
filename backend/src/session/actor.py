@@ -356,7 +356,10 @@ class SessionActor:
             if frame.turn_id != turn_id:
                 continue
             if first:
-                timings.mark_from_turn_start("tts.ttfb")
+                # From the LLM's first token, which is what the budget names. On a turn
+                # with no LLM (the greeting) there is no such mark, and mark_since falls
+                # back to turn start — correct, since submission is the turn start there.
+                timings.mark_since("tts.ttfb", "llm.ttft")
                 first = False
                 self._agent_speaking = True
                 if self._sm.can(Trigger.FIRST_AUDIO):

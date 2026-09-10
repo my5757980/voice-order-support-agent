@@ -1,0 +1,224 @@
+- generic [ref=f34e1]:
+  - generic [ref=f34e2]:
+    - generic:
+      - link "Skip to content" [ref=f34e3] [cursor=pointer]:
+        - /url: "#main-content"
+      - generic:
+        - link "Home" [ref=f34e4] [cursor=pointer]:
+          - /url: /~
+          - img "Home" [ref=f34e5]
+        - navigation "Main navigation" [ref=f34e7]:
+          - generic [ref=f34e8]:
+            - button "Search" [ref=f34e9] [cursor=pointer]
+            - button "Toggle sidebar" [expanded] [ref=f34e12] [cursor=pointer]
+          - button "My5757980 Personal workspace" [ref=f34e16] [cursor=pointer]:
+            - generic [ref=f34e17]:
+              - img "My5757980" [ref=f34e20]
+              - generic [ref=f34e21]: Personal workspace
+          - list [ref=f34e26]:
+            - listitem [ref=f34e27]:
+              - link "New" [ref=f34e28] [cursor=pointer]:
+                - /url: /~
+            - listitem [ref=f34e34]:
+              - link "Import" [ref=f34e35] [cursor=pointer]:
+                - /url: /import
+            - listitem [ref=f34e41]:
+              - link "Projects" [ref=f34e42] [cursor=pointer]:
+                - /url: /repls
+            - listitem [ref=f34e49]:
+              - link "Routines Beta" [ref=f34e50] [cursor=pointer]:
+                - /url: /routines
+                - generic [ref=f34e51]: Routines
+                - generic [ref=f34e56]: Beta
+            - listitem [ref=f34e59]:
+              - link "Library" [ref=f34e60] [cursor=pointer]:
+                - /url: /library
+            - listitem [ref=f34e66]:
+              - link "Integrations" [ref=f34e67] [cursor=pointer]:
+                - /url: /~?settings.show=true&settings.tab=integrations&orgSlug=
+            - listitem [ref=f34e75]:
+              - link "Security" [ref=f34e76] [cursor=pointer]:
+                - /url: /~?settings.show=true&settings.tab=security&orgSlug=
+            - listitem [ref=f34e83]:
+              - navigation "Chats and Projects" [ref=f34e248]:
+                - list [ref=f34e250]:
+                  - heading "Recent" [level=2] [ref=f34e253]
+                  - listitem [ref=f34e254]:
+                    - generic [ref=f34e255]:
+                      - button "Expand voice-order-support-agent" [ref=f34e256] [cursor=pointer]
+                      - link "voice-order-support-agent" [ref=f34e257] [cursor=pointer]:
+                        - /url: /@my5757980/voice-order-support-agent
+                      - generic:
+                        - generic
+          - button "Use smarter models GPT-6 Astra & Claude Fable" [ref=f34e186] [cursor=pointer]:
+            - generic [ref=f34e190]:
+              - generic [ref=f34e191]: Use smarter models
+              - generic [ref=f34e192]: GPT-6 Astra & Claude Fable
+          - generic [ref=f34e86]:
+            - button "Account menu" [ref=f34e87] [cursor=pointer]:
+              - img "My5757980" [ref=f34e91]
+              - generic [ref=f34e92]: My5757980
+            - link "Settings" [ref=f34e94] [cursor=pointer]:
+              - /url: /~?settings.show=true&settings.tab=workspaceOverview&orgSlug=
+              - img "Settings" [ref=f34e95]
+    - generic [ref=f34e242]:
+      - generic:
+        - status "Messages (alt + T key to focus)":
+          - list
+        - generic [ref=f34e260]:
+          - generic [ref=f34e264]:
+            - button "voice-order-support-agent" [ref=f34e266] [cursor=pointer]
+            - group [ref=f34e271]:
+              - generic [ref=f34e273] [cursor=pointer]:
+                - radio "Design" [ref=f34e275]
+                - generic [ref=f34e276]: Design
+              - generic [ref=f34e278] [cursor=pointer]:
+                - radio "Build" [checked] [ref=f34e280]
+                - generic [ref=f34e281]: Build
+            - button "Run the app" [ref=f34e284] [cursor=pointer]
+          - generic [ref=f34e288]:
+            - button "Invite" [ref=f34e291] [cursor=pointer]
+            - button "Publish" [ref=f34e294] [cursor=pointer]
+            - button "Open library" [ref=f34e302] [cursor=pointer]
+          - main:
+            - generic [ref=f34e309]:
+              - generic "Double click to maximize. Drag to move." [ref=f34e310]
+              - button "Tools" [ref=f34e312] [cursor=pointer]
+              - button "Preview" [ref=f34e317] [cursor=pointer]
+              - button "Tools & files" [ref=f34e322] [cursor=pointer]
+            - tabpanel [ref=f34e325]:
+              - generic [ref=f34e327]:
+                - generic "Tools" [ref=f34e329]:
+                  - generic [ref=f34e330]:
+                    - group "Replit Cloud" [ref=f34e332]:
+                      - generic [ref=f34e333]:
+                        - button "Publishing" [ref=f34e334] [cursor=pointer]
+                        - generic [ref=f34e340]: Publish a sharable version of your App, unaffected by changes made in the project editor
+                      - generic [ref=f34e341]:
+                        - button "Domains" [ref=f34e342] [cursor=pointer]
+                        - generic [ref=f34e346]: Manage custom domains for your published project
+                      - generic [ref=f34e347]:
+                        - button "Monitoring" [ref=f34e348] [cursor=pointer]
+                        - generic [ref=f34e352]: View app health, request metrics, and alerts for your published app.
+                      - generic [ref=f34e353]:
+                        - button "Growth" [ref=f34e354] [cursor=pointer]
+                        - generic [ref=f34e358]: Find, fix, and monitor SEO and growth opportunities
+                      - generic [ref=f34e359]:
+                        - button "Database" [ref=f34e360] [cursor=pointer]
+                        - generic [ref=f34e364]: Stores structured data such as user profiles, game scores, and product catalogs.
+                      - generic [ref=f34e365]:
+                        - button "Users & Auth" [ref=f34e366] [cursor=pointer]
+                        - generic [ref=f34e371]: Let users log in to your App using a prebuilt login page
+                      - generic [ref=f34e372]:
+                        - button "Security Center" [ref=f34e373] [cursor=pointer]
+                        - generic [ref=f34e378]: Find, fix, and monitor security vulnerabilities and privacy issues
+                      - generic [ref=f34e379]:
+                        - button "App Storage" [ref=f34e380] [cursor=pointer]
+                        - generic [ref=f34e387]: Host and save uploads like images, videos, and documents
+                    - group "Setup" [ref=f34e389]:
+                      - generic [ref=f34e390]:
+                        - button "Integrations" [ref=f34e391] [cursor=pointer]
+                        - generic [ref=f34e397]: Connect to Replit-native and external services
+                      - generic [ref=f34e398]:
+                        - button "Git" [ref=f34e399] [cursor=pointer]
+                        - generic [ref=f34e403]: Version control for your App
+                      - generic [ref=f34e404]:
+                        - button "Secrets" [ref=f34e405] [cursor=pointer]
+                        - generic [ref=f34e409]: Store sensitive information (like API keys) securely in your App
+                      - generic [ref=f34e410]:
+                        - button "Agent Skills" [ref=f34e411] [cursor=pointer]
+                        - generic [ref=f34e415]: Manage skills that extend Agent capabilities
+                - generic [ref=f34e418]:
+                  - generic [ref=f34e419]:
+                    - generic [ref=f34e420]:
+                      - generic [ref=f34e422]:
+                        - heading "Secrets" [level=1] [ref=f34e424]
+                        - button "Open in new tab" [ref=f34e426] [cursor=pointer]
+                      - generic [ref=f34e430]:
+                        - button "More" [ref=f34e431] [cursor=pointer]
+                        - button "Link Account Secrets" [ref=f34e434] [cursor=pointer]
+                        - button "New Secret" [ref=f34e438] [cursor=pointer]
+                    - generic [ref=f34e444]:
+                      - generic [ref=f34e446]:
+                        - generic [ref=f34e454]
+                        - button "Close" [ref=f34e457] [cursor=pointer]
+                      - generic [ref=f34e462]:
+                        - generic [ref=f34e463]
+                        - generic [ref=f34e469]
+                        - button "Options" [ref=f34e480] [cursor=pointer]
+                  - generic [ref=f34e483]:
+                    - generic [ref=f34e484]:
+                      - generic [ref=f34e485]: Configurations
+                      - generic [ref=f34e486]:
+                        - button "More" [ref=f34e487] [cursor=pointer]
+                        - button "New configuration" [ref=f34e491] [cursor=pointer]
+                    - generic [ref=f34e497]: Configurations are similar to secrets, but should only be used for non-sensitive information. They're useful for having a variable that's different between your published app and when testing on Replit.
+            - tabpanel:
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic:
+                        - generic
+                        - text: Preview your App
+          - generic [ref=f34e505]:
+            - generic [ref=f34e509]:
+              - generic [ref=f34e514]:
+                - generic [ref=f34e515]: Active task
+                - generic [ref=f34e516]: Set up the imported project
+              - generic [ref=f34e518]:
+                - button "View plan" [ref=f34e519] [cursor=pointer]
+                - button "Task actions" [ref=f34e523] [cursor=pointer]
+            - generic [ref=f34e527]:
+              - log "Agent conversation" [ref=f34e531]:
+                - generic [ref=f34e532]:
+                  - generic [ref=f34e535]:
+                    - button "Started task" [expanded] [ref=f34e537] [cursor=pointer]
+                    - generic [ref=f34e547]:
+                      - generic [ref=f34e548]:
+                        - generic [ref=f34e549]: Set up the imported project
+                        - paragraph [ref=f34e554]: The user just imported this project from a GitHub repository. It could be anything — an app to run on Replit, a library, a fork to study, code to reuse — so the first thing to do is ask what they want; everything after depends on the answer.
+                      - button "View plan" [ref=f34e556] [cursor=pointer]
+                  - generic [ref=f34e564]:
+                    - generic [ref=f34e565]: Inspecting files
+                    - button "Inspecting files" [ref=f34e569] [cursor=pointer]
+                  - generic [ref=f34e578]:
+                    - paragraph [ref=f34e581]: I’ll take a quick look at the repository’s README and entry points, then ask what outcome you want before changing anything.
+                    - generic:
+                      - button "Copy"
+                  - button "6 actions" [ref=f34e587] [cursor=pointer]
+                  - generic [ref=f34e617]:
+                    - paragraph [ref=f34e620]: "This is a full-stack voice order-support demo: FastAPI/SQLite backend plus a Vite/TypeScript frontend. It can run in scripted demo mode without API keys; live speech transcription and AI responses optionally need AssemblyAI and Groq credentials. The repository already includes a single-process startup script, so Replit setup should be small."
+                    - generic:
+                      - button "Copy"
+                  - button "Worked for 24 seconds" [ref=f34e628] [cursor=pointer]
+                  - button "Checkpoint made just now" [ref=f34e640] [cursor=pointer]:
+                    - generic [ref=f34e646]:
+                      - generic [ref=f34e647]: Checkpoint made
+                      - generic [ref=f34e649]: just now
+              - button "Scroll to latest"
+            - group "Agent has questions for you" [ref=f34e662]:
+              - generic [ref=f34e665]:
+                - generic [ref=f34e666]:
+                  - generic [ref=f34e667]:
+                    - generic [ref=f34e668]: What would you like me to do with the imported project?
+                    - button "Minimize" [ref=f34e672] [cursor=pointer]
+                  - generic [ref=f34e676]:
+                    - generic [ref=f34e677]: Choose the outcome you want before I make any changes.
+                    - generic [ref=f34e678]: Desired outcome
+                    - group "What would you like me to do with the imported project? Desired outcome" [ref=f34e679]:
+                      - generic [ref=f34e680]:
+                        - generic [ref=f34e682]
+                        - generic [ref=f34e698]
+                - generic [ref=f34e703]:
+                  - button "Decline" [ref=f34e706] [cursor=pointer]
+                  - button "Submit" [ref=f34e711] [cursor=pointer]
+          - generic:
+            - generic:
+              - button
+              - button
+              - button
+            - generic:
+              - generic:
+                - button
+  - alert [ref=f34e182]: Loading... - Replit
