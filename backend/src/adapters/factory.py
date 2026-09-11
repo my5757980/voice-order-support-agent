@@ -61,8 +61,10 @@ def build_stt(**overrides: Any) -> tuple[Any | None, str]:
             end_of_turn_confidence_threshold=float(
                 os.environ.get("STT_END_OF_TURN_CONFIDENCE", "0.4")
             ),
-            min_turn_silence_ms=int(os.environ.get("STT_MIN_TURN_SILENCE_MS", "160")),
-            max_turn_silence_ms=int(os.environ.get("STT_MAX_TURN_SILENCE_MS", "400")),
+            # AssemblyAI's balanced preset, its documented recommendation for customer
+            # support. The aggressive one split "Hi, where's my order?" at the comma.
+            min_turn_silence_ms=int(os.environ.get("STT_MIN_TURN_SILENCE_MS", "400")),
+            max_turn_silence_ms=int(os.environ.get("STT_MAX_TURN_SILENCE_MS", "1280")),
             **overrides,
         ),
         "assemblyai",

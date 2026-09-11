@@ -34,8 +34,8 @@ class Settings(BaseSettings):
     stt_speech_model: str = "universal-3-5-pro"
     stt_sample_rate: int = 16_000
     stt_frame_ms: int = 50
-    stt_min_turn_silence_ms: int = 160
-    stt_max_turn_silence_ms: int = 400
+    stt_min_turn_silence_ms: int = 400   # AssemblyAI's balanced preset (customer support)
+    stt_max_turn_silence_ms: int = 1280
     stt_end_of_turn_confidence: float = Field(default=0.4, ge=0.0, le=1.0)
     stt_format_turns: bool = True
 

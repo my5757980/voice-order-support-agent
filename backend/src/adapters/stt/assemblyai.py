@@ -47,8 +47,8 @@ class AssemblyAISpeechRecognizer:
         speech_model: str = "universal-3-5-pro",
         format_turns: bool = True,
         end_of_turn_confidence_threshold: float = 0.4,
-        min_turn_silence_ms: int = 160,
-        max_turn_silence_ms: int = 400,
+        min_turn_silence_ms: int = 400,
+        max_turn_silence_ms: int = 1280,
     ) -> None:
         self._api_key = api_key
         # Every one of these is configuration, never a literal in business logic
