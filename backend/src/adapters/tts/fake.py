@@ -52,6 +52,7 @@ class FakeSpeechSynthesizer:
         self._active_turn = ""
         self._session_id = ""
         self.submitted: list[str] = []
+        self._turn_chars = 0  # where the next clause starts within the reply
 
     async def connect(self, session_id: str) -> None:
         self._session_id = session_id
@@ -60,7 +61,12 @@ class FakeSpeechSynthesizer:
         """Synthesize one clause. Character offsets are carried on every frame, which is
         what lets the orchestrator compute exactly how much was heard."""
         self.submitted.append(text)
+        if turn_id != self._active_turn:
+            self._turn_chars = 0
         self._active_turn = turn_id
+        # Reply-relative, as the orchestrator joins clauses with a single space.
+        base = self._turn_chars
+        self._turn_chars += len(text) + 1
 
         frames = max(1, round(len(text) * self._ms_per_char / 50))
         phase = 0.0
@@ -73,7 +79,7 @@ class FakeSpeechSynthesizer:
                 # stay stopped, however many later turns begin.
                 return
             pcm, phase = _frame(phase, freq)
-            char_offset = round(len(text) * i / frames)
+            char_offset = base + round(len(text) * i / frames)
             await self._queue.put(
                 AgentAudio(
                     session_id=self._session_id,

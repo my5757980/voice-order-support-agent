@@ -15,9 +15,12 @@
  * what the shopper heard, never what the model generated.
  */
 
-// ~4 s at 16 kHz. Large enough to absorb network jitter, small enough that a flush
-// never has to walk a huge buffer.
-const CAPACITY = 65536;
+// 30 s at 16 kHz. The synthesizer returns each clause whole and the server forwards it at
+// once, so a reply arrives far faster than realtime. At the old ~4 s the overrun handler
+// dropped the oldest unplayed audio — the start of every reply longer than four seconds.
+// Measured in the production worklet: 8 s pushed, 4.06 s played. A flush is O(1)
+// (readIdx = writeIdx) at any size, so capacity costs only memory: 1.9 MB of Float32.
+const CAPACITY = 16000 * 30;
 const PROGRESS_EVERY = 1600; // report roughly every 100 ms
 
 type InboundMessage =
@@ -40,7 +43,14 @@ class PlaybackProcessor extends AudioWorkletProcessor {
         this.flush();
         return;
       }
-      this.turnId = msg.turnId;
+      if (msg.turnId !== this.turnId) {
+        // Progress is reported per turn. Counting from the last flush, across turns,
+        // credited every earlier reply's audio to the one playing now — and the server
+        // maps this count onto how much of *that* reply the shopper heard.
+        this.played = 0;
+        this.sinceReport = 0;
+        this.turnId = msg.turnId;
+      }
       this.push(new Int16Array(msg.pcm));
     };
   }

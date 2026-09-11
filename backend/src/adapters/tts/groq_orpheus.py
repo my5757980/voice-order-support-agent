@@ -134,6 +134,10 @@ class GroqSpeechSynthesizer:
         self._failures: dict[str, str] = {}
         self._active_turn = ""
         self._tasks: set[asyncio.Task[None]] = set()
+        # Emission order within a turn: each clause waits for the one submitted before it.
+        self._emit_chain: dict[str, asyncio.Event] = {}
+        # Where the next clause starts within the reply, as the orchestrator joins it.
+        self._turn_chars = 0
         self.submitted: list[str] = []
 
         self._client = httpx.AsyncClient(
@@ -155,13 +159,48 @@ class GroqSpeechSynthesizer:
         if not clause:
             return
         self.submitted.append(clause)
+        if turn_id != self._active_turn:
+            self._emit_chain.clear()
+            self._turn_chars = 0
         self._active_turn = turn_id
 
-        task = asyncio.create_task(self._synthesize(clause, turn_id))
+        # Offsets are relative to the whole reply: each clause starts after the ones before
+        # it and the single space the orchestrator joins them with. Clause-relative offsets
+        # restarted at zero every clause, so "how much was heard" could not be answered.
+        base = self._turn_chars
+        self._turn_chars += len(clause) + 1
+
+        # Synthesis runs in parallel — that is the latency win — but emission is strictly
+        # in submission order. Clauses used to be emitted in whatever order their requests
+        # returned, and a short clause returns first: the agent could say its second
+        # clause before its first.
+        previous = self._emit_chain.get(turn_id)
+        emitted = asyncio.Event()
+        self._emit_chain[turn_id] = emitted
+
+        task = asyncio.create_task(self._synthesize(clause, turn_id, base, previous, emitted))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _synthesize(self, clause: str, turn_id: str) -> None:
+    async def _synthesize(
+        self,
+        clause: str,
+        turn_id: str,
+        base: int = 0,
+        previous: asyncio.Event | None = None,
+        emitted: asyncio.Event | None = None,
+    ) -> None:
+        try:
+            await self._synthesize_clause(clause, turn_id, base, previous)
+        finally:
+            # Always release the next clause — on failure and on cancellation too — or one
+            # bad clause would silence the rest of the reply.
+            if emitted is not None:
+                emitted.set()
+
+    async def _synthesize_clause(
+        self, clause: str, turn_id: str, base: int, previous: asyncio.Event | None
+    ) -> None:
         try:
             response = await self._client.post(
                 ENDPOINT,
@@ -189,6 +228,11 @@ class GroqSpeechSynthesizer:
         pcm = _resample_24k_to_16k(_pcm_from_wav(response.content))
         total_frames = max(1, len(pcm) // (FRAME_SAMPLES * 2))
 
+        if previous is not None:
+            await previous.wait()
+        if turn_id in self._cancelled:
+            return
+
         for index in range(total_frames):
             if turn_id in self._cancelled:
                 return
@@ -200,7 +244,7 @@ class GroqSpeechSynthesizer:
             # No character alignment from this provider, so the offset is interpolated
             # across the clause. Clause-resolution rather than character-resolution —
             # still bounded by audio genuinely played, which is the property that matters.
-            char_offset = round(len(clause) * index / total_frames)
+            char_offset = base + round(len(clause) * index / total_frames)
             await self._queue.put(
                 AgentAudio(
                     session_id=self._session_id,

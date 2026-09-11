@@ -129,18 +129,32 @@ async def test_interruption_stops_the_agent(actor) -> None:  # type: ignore[no-u
 
 async def test_interruption_truncates_memory_to_what_was_heard(actor) -> None:  # type: ignore[no-untyped-def]
     """Constitution principle III — memory records what the shopper HEARD, never what
-    the model generated."""
-    a, sink = actor
-    await _speak_until_audio(a, sink, "where's my order?")
+    the model generated.
 
-    a.on_playback_progress(a._current_turn_id, 800 * 3)  # three frames actually played
+    Cut while the model is still generating, so the reply has not reached memory. The
+    heard part of the clauses already spoken must be recorded — the shopper heard those
+    words. This test used to pass by marking the tool-call request as "truncated", which
+    was the last assistant message at the time: the property was never actually held.
+    """
+    a, sink = actor
+    await a.on_committed("where's my order?")
+    for _ in range(300):
+        await asyncio.sleep(0.01)
+        if sink.audio_frames >= 6:
+            break
+    turn = a._play_turn
+    a.on_playback_progress(turn, 800 * 5)  # five 50 ms frames actually played
     await a.interrupt()
     await asyncio.sleep(0.3)
 
-    assistant = [m for m in a._messages if m.get("role") == "assistant"]
-    if assistant:
-        assert assistant[-1].get("truncated") is True
-        assert len(str(assistant[-1]["content"])) < 120
+    last = a._messages[-1]
+    assert last["role"] == "assistant" and last.get("truncated") is True
+    assert "tool_calls" not in last, "the tool-call request is not what the shopper heard"
+    assert last["content"], "the shopper heard words; memory must hold them"
+    spoken = " ".join(a._spoken)
+    assert spoken.startswith(last["content"])
+    assert len(last["content"]) < len(spoken)
+    await a.close()
 
 
 async def test_backchannel_does_not_interrupt(actor) -> None:  # type: ignore[no-untyped-def]
@@ -396,3 +410,115 @@ async def test_the_session_survives_to_answer_the_next_turn(
             break
     assert [m["status"] for m in sink.of("agent.done")] == ["failed", "complete"]
     await a.close()
+
+
+
+# -- the tail: synthesis finished, the shopper still hearing it ----------------------
+
+
+@pytest.fixture
+def burst_actor(tmp_path: Path) -> tuple[SessionActor, Sink]:
+    """A synthesizer that returns every frame at once, as Groq Orpheus does.
+
+    The realtime fake used everywhere else paces frames at playback speed, so a turn
+    never finished while its audio was still playing. Orpheus finishes seconds early —
+    and that gap is where barge-in used to be impossible.
+    """
+    conn: sqlite3.Connection = connect(str(tmp_path / "burst.db"))
+    seed(conn)
+    sink = Sink()
+    a = SessionActor(
+        session_id="sess-burst",
+        customer_id=DEMO_CUSTOMER_ID,
+        repo=OrderRepository(conn, DEMO_CUSTOMER_ID),
+        registry=build_registry(),
+        llm=FakeLanguageModel(token_delay_s=0.001),
+        tts=FakeSpeechSynthesizer(realtime=False),
+        send_control=sink.send_control,
+        send_audio=sink.send_audio,
+    )
+    return a, sink
+
+
+async def _until_done(sink: Sink, n: int = 1) -> None:
+    for _ in range(500):
+        await asyncio.sleep(0.01)
+        if len(sink.of("agent.done")) >= n:
+            return
+    pytest.fail("the turn never finished")
+
+
+async def test_a_reply_still_playing_can_be_interrupted(burst_actor) -> None:  # type: ignore[no-untyped-def]
+    """Regression from the deployed app: `agent.done` arrived 0.5 s after the reply's
+    first audio and the audio played for six seconds. A shopper talking over that tail
+    got no flush and no stop — the server believed the agent had finished."""
+    a, sink = burst_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    assert a._audio_playing, "precondition: the turn is over, the audio is not"
+
+    await a.on_committed("sorry, the headphones one")
+    assert "audio.flush" in sink.types()
+
+
+async def test_the_reply_still_playing_is_cut_to_what_was_heard(burst_actor) -> None:  # type: ignore[no-untyped-def]
+    a, sink = burst_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    reply = a._reply
+    assert reply is not None
+    full = str(reply["content"])
+
+    a.on_playback_progress(a._play_turn, 16_000)  # one second of it actually played
+    await a.interrupt()
+
+    assert reply.get("truncated") is True
+    assert full.startswith(str(reply["content"]))
+    assert 0 < len(str(reply["content"])) < len(full)
+
+
+async def test_the_floor_is_released_when_the_audio_ends(burst_actor) -> None:  # type: ignore[no-untyped-def]
+    """The mirror image: once the browser has played everything, the next turn is a
+    new turn, not an interruption."""
+    a, sink = burst_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    a._playback_end = 0.0  # the audio has finished playing
+    flushes = sink.types().count("audio.flush")
+
+    await a.on_committed("thanks")
+    assert sink.types().count("audio.flush") == flushes
+
+
+async def test_a_turn_cut_before_it_spoke_leaves_the_previous_reply_alone(
+    burst_actor,  # type: ignore[no-untyped-def]
+) -> None:
+    """The old truncation shortened "the last assistant message". Cut before the new
+    turn produced any audio, that was the previous reply — which had been heard in full."""
+    a, sink = burst_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    previous = dict(a._reply or {})
+    a._playback_end = 0.0
+
+    a._llm = SlowToStartModel()
+    await a.on_committed("and the mug?")
+    await asyncio.sleep(0.05)  # in flight, nothing spoken yet
+    await a.interrupt()
+
+    assert a._reply is not None and a._reply.get("content") == previous.get("content")
+    assert not a._reply.get("truncated")
+
+
+class SlowToStartModel(FakeLanguageModel):
+    """Holds its first token long enough for a test to interrupt before any audio."""
+
+    def stream(self, **kwargs: Any):  # type: ignore[override]
+        inner = super().stream(**kwargs)
+
+        async def slow():  # type: ignore[no-untyped-def]
+            await asyncio.sleep(0.5)
+            async for chunk in inner:
+                yield chunk
+
+        return slow()

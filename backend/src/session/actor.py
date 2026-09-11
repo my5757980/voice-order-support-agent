@@ -43,6 +43,33 @@ MAX_SPEECH_DRAIN_S = 20.0
 than holding the session open indefinitely."""
 
 
+def _whole_words(text: str, n: int) -> str:
+    """The first `n` characters of `text`, backed off to a word boundary.
+
+    Heard offsets interpolate within a clause, so they can land mid-word. Memory keeps
+    whole words only, and errs toward having heard less.
+    """
+    if n >= len(text):
+        return text.rstrip()
+    cut = text[: max(n, 0)]
+    if n > 0 and not text[n].isspace():
+        cut = cut.rsplit(" ", 1)[0] if " " in cut else ""
+    return cut.rstrip()
+
+
+_SAMPLE_RATE = 16_000
+"""The playback format, PCM16 mono — what the browser's worklet renders."""
+
+_NETWORK_LAG_S = 0.1
+"""How far the browser's playback trails the server's send: roughly one network hop.
+Used only where the browser has not yet reported what it played."""
+
+_PLAYBACK_MARGIN_S = 0.25
+"""Audio counts as still playing this long past the modelled end. A barge-in that lands
+a little late flushes an already-empty buffer, which is harmless; one dismissed because
+the model ended early lets the agent talk over the shopper, which is the failure."""
+
+
 _MODEL_ERROR_TEXT: dict[str, str] = {
     "rate_limited": (
         "Sorry — I couldn't get to that just now. Please say it again in a few seconds."
@@ -112,8 +139,23 @@ class SessionActor:
         # confirmation — a fact the system observed, not a guess about wording.
         self._confirmation_refused = False
         self._current_turn_id = ""
-        self._spoken_chars = 0
         self._interrupt_started: float | None = None
+        self._interrupted_turn = ""
+
+        # The browser's playback, modelled here. Orpheus returns each clause whole and the
+        # pump forwards it at once, so synthesis finishes seconds before the shopper stops
+        # hearing the reply. The floor, barge-in and "what was heard" all have to follow
+        # the audio the shopper is hearing, not the audio the server finished sending.
+        self._playback_end = 0.0
+        self._play_turn = ""
+        self._play_frames: list[tuple[float, float, int]] = []  # (start, seconds, char offset)
+        self._progress_samples = 0  # the browser's own count, for the playing turn
+        self._reply: dict[str, Any] | None = None
+        self._reply_turn = ""
+        # The clauses handed to the synthesizer for the turn being generated, before the
+        # reply as a whole reaches memory. Shared with the running turn, not copied.
+        self._spoken: list[str] = []
+        self._spoken_turn = ""
 
         # Speculation state. The staged text is the whole point: it exists so a
         # speculative answer can be held back until the turn commits, and discarded
@@ -139,7 +181,9 @@ class SessionActor:
         turn_id = uuid.uuid4().hex[:12]
         self._current_turn_id = turn_id
         self._timings = TurnTimings(session_id=self.session_id, turn_id=turn_id)
-        self._messages.append({"role": "assistant", "content": GREETING})
+        greeting = {"role": "assistant", "content": GREETING}
+        self._messages.append(greeting)
+        self._reply, self._reply_turn = greeting, turn_id
         await self._send_control(
             {"type": "transcript.committed", "text": GREETING, "turn_order": 0, "speaker": "agent"}
         )
@@ -178,9 +222,24 @@ class SessionActor:
         a turn finishing and its task being marked done — where the task check alone
         would report a floor nobody holds.
         """
+        if self._audio_playing:
+            return True
         if self._turn_task is None or self._turn_task.done():
             return False
         return self._turn_in_flight
+
+    @property
+    def _audio_playing(self) -> bool:
+        """The browser is still playing the agent's audio.
+
+        With a synthesizer that returns each clause whole, the turn task finished — and
+        gave up the floor — while seconds of reply were still queued in the browser. A
+        shopper talking over that tail was not a barge-in as far as the server knew: no
+        flush, no stop, and the agent kept talking over them. Measured on the deployed
+        app: the reply's `agent.done` arrived 0.5 s after its first audio, and the audio
+        played for six seconds.
+        """
+        return time.monotonic() < self._playback_end + _PLAYBACK_MARGIN_S
 
     # -- inbound -----------------------------------------------------------
 
@@ -336,10 +395,17 @@ class SessionActor:
         if not self._agent_has_floor:
             return
         self._interrupt_started = time.monotonic()
+        # The turn being cut is the one the shopper is hearing, if any audio is playing;
+        # otherwise the one in flight, which may not have said anything yet.
+        target = self._play_turn if self._audio_playing else self._current_turn_id
+        self._interrupted_turn = target
+        # Whether the whole reply had been synthesized decides what "heard everything sent"
+        # means below, so it is read before the task is cancelled.
+        synthesis_done = self._turn_task is None or self._turn_task.done()
 
         await asyncio.gather(
             self._tts.clear_buffer(),
-            self._send_control({"type": "audio.flush", "turn_id": self._current_turn_id}),
+            self._send_control({"type": "audio.flush", "turn_id": self._interrupted_turn}),
             return_exceptions=True,
         )
         if self._turn_task and not self._turn_task.done():
@@ -352,7 +418,8 @@ class SessionActor:
             self._sm.fire(Trigger.BARGE_IN)
 
         # Memory records what was HEARD, not what was generated (principle III).
-        self._truncate_agent_turn()
+        self._truncate_heard(target, synthesis_done=synthesis_done)
+        self._playback_end = 0.0  # the browser has just zeroed its buffer
 
         if self._sm.can(Trigger.TRUNCATED):
             self._sm.fire(Trigger.TRUNCATED)
@@ -364,11 +431,12 @@ class SessionActor:
         Combined with the character offsets carried on each audio frame, this is what
         makes the truncation exact rather than an estimate from elapsed time.
         """
-        if turn_id != self._current_turn_id:
-            return
-        self._spoken_chars = max(self._spoken_chars, frames_played // 800 * 3)
+        if turn_id == self._play_turn:
+            self._progress_samples = max(self._progress_samples, frames_played)
 
-        if self._interrupt_started is not None:
+        # The flush confirmation is for the turn that was interrupted, which on the
+        # commit path is no longer the current turn by the time it arrives.
+        if self._interrupt_started is not None and turn_id == self._interrupted_turn:
             ms = (time.monotonic() - self._interrupt_started) * 1000
             metrics.observe("barge_in_latency_seconds", ms / 1000)
             if self._timings:
@@ -382,6 +450,7 @@ class SessionActor:
         assert timings is not None
         splitter = ClauseSplitter()
         spoken: list[str] = []
+        self._spoken, self._spoken_turn = spoken, turn_id
 
         try:
             if self._sm.can(Trigger.DISPATCHED):
@@ -449,7 +518,9 @@ class SessionActor:
 
                 full = " ".join(spoken).strip()
                 if full:
-                    self._messages.append({"role": "assistant", "content": full})
+                    reply = {"role": "assistant", "content": full}
+                    self._messages.append(reply)
+                    self._reply, self._reply_turn = reply, turn_id
                     await self._send_control(
                         {
                             "type": "transcript.committed",
@@ -582,7 +653,24 @@ class SessionActor:
                     self._sm.fire(Trigger.FIRST_AUDIO)
                 await self._send_control({"type": "agent.speaking", "turn_id": turn_id})
                 await self._emit_state()
+            self._model_playback(frame)
             await self._send_audio(frame.pcm)
+
+    def _model_playback(self, frame: Any) -> None:
+        """Advance the model of the browser's playback by one frame being sent.
+
+        A frame plays when the one before it finishes, or on arrival if the buffer ran
+        dry — so the model follows underruns between clauses as well as bursts.
+        """
+        now = time.monotonic()
+        if frame.turn_id != self._play_turn:
+            self._play_turn = frame.turn_id
+            self._play_frames = []
+            self._progress_samples = 0
+        start = max(self._playback_end, now)
+        seconds = len(frame.pcm) / 2 / _SAMPLE_RATE
+        self._play_frames.append((start, seconds, int(getattr(frame, "char_offset", 0))))
+        self._playback_end = start + seconds
 
     async def _report_synthesis_failure(self, turn_id: str) -> None:
         """Say out loud that the agent could not say anything.
@@ -626,15 +714,65 @@ class SessionActor:
             {"type": "agent.done", "turn_id": timings.turn_id, "status": status}
         )
 
-    def _truncate_agent_turn(self) -> None:
-        for msg in reversed(self._messages):
-            if msg.get("role") == "assistant":
-                text = str(msg.get("content", ""))
-                heard = text[: self._spoken_chars] if self._spoken_chars else ""
-                msg["content"] = heard.rstrip()
-                msg["truncated"] = True
-                break
-        self._spoken_chars = 0
+    def _heard_chars(self, now: float) -> int | None:
+        """Characters of the playing reply the shopper has heard; None if every frame
+        sent so far has been heard.
+
+        The browser's own count wins when it has reported one; the playback model,
+        lagged by a network hop, stands in before the first report. Either way the
+        answer is the reply-relative offset of the first frame not yet played, so memory
+        is never ahead of the audio.
+        """
+        if self._progress_samples > 0:
+            heard_s = self._progress_samples / _SAMPLE_RATE
+        else:
+            t = now - _NETWORK_LAG_S
+            heard_s = sum(min(max(t - s, 0.0), d) for s, d, _ in self._play_frames)
+        elapsed = 0.0
+        for _, seconds, offset in self._play_frames:
+            if elapsed + seconds > heard_s:
+                return offset
+            elapsed += seconds
+        return None
+
+    def _truncate_heard(self, target: str, *, synthesis_done: bool) -> None:
+        """Make memory hold what the shopper heard of the interrupted turn — no more, and
+        nothing about any other turn.
+
+        If the reply is already in memory (it finished generating and was still playing
+        out), it is shortened to what was heard. If it is not — the cut came while the
+        model was still generating — the heard part of the clauses already spoken is
+        recorded as a truncated reply: the shopper heard those words, so the model has
+        to know they were said.
+
+        The old version shortened "the last assistant message". When the cut came during
+        generation that was the tool-call request, or the previous turn's reply, heard in
+        full — and the words the shopper had just heard were never remembered at all.
+        """
+        if target != self._play_turn:
+            return  # nothing of the interrupted turn had reached the speakers
+        in_memory = self._reply if self._reply_turn == target else None
+        if in_memory is not None:
+            text = str(in_memory.get("content", ""))
+        elif self._spoken_turn == target and self._spoken:
+            text = " ".join(self._spoken)
+        else:
+            return
+
+        heard = self._heard_chars(time.monotonic())
+        if heard is None:  # every frame sent so far was heard
+            if synthesis_done:
+                heard = len(text)
+            else:
+                heard = self._play_frames[-1][2] if self._play_frames else 0
+        cut = _whole_words(text, heard)
+
+        if in_memory is not None:
+            if len(cut) < len(text.rstrip()):
+                in_memory["content"] = cut
+                in_memory["truncated"] = True
+        elif cut:
+            self._messages.append({"role": "assistant", "content": cut, "truncated": True})
 
     async def _emit_state(self) -> None:
         await self._send_control({"type": "state", "state": self._sm.state.value})
