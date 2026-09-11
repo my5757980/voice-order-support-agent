@@ -6,6 +6,22 @@ Built for the [AssemblyAI Voice Agent Hackathon](https://lablab.ai/ai-hackathons
 on the **Realtime Speech-to-Text** path — AssemblyAI's streaming WebSocket with our own
 orchestration, LLM and text-to-speech. Not the managed Voice Agent API.
 
+**Try it:** https://voice-order-support-agent--my5757980.replit.app — press Start, ask
+where your order is, then talk over the answer.
+
+| | |
+|---|---|
+| Demo video (1:55) | [`assets/demo.mp4`](assets/demo.mp4) |
+| Slides | [`assets/slides.pdf`](assets/slides.pdf) |
+| Submission text | [`SUBMISSION.md`](SUBMISSION.md) |
+
+Measured on the recorded run against the deployed app: the agent went silent **1.14 s**
+after the shopper started talking over it, and answered **3.2 s** (median) after the
+shopper finished. The live demo runs on Groq's free tier — 8,000 tokens a minute — so it
+serves one conversation at a time.
+
+![Voice Order Support Agent](assets/cover.png)
+
 ---
 
 ## The idea

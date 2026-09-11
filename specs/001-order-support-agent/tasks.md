@@ -535,27 +535,27 @@ Technology. The Rule Book is explicit: *"Failure to adhere to submission guideli
 lower score or exclusion from the hackathon."* Working software with a missing MP4 scores worse than
 weaker software with a complete submission. **Every task here is critical path.**
 
-- [ ] T081 Project title, descriptions, and tags in `SUBMISSION.md`
+- [x] T081 Project title, descriptions, and tags in `SUBMISSION.md` — done 2026-09-11: SUBMISSION.md — title, short and long description, tags
   - **What**: Clear descriptive title; short and long descriptions within the platform's character/word limits; correct technology and category tags — the stack that actually runs: AssemblyAI Realtime STT, Groq (`openai/gpt-oss-120b`), Groq / Canopy Labs Orpheus, voice agent, e-commerce. Neither Anthropic nor ElevenLabs is in this project; tagging either would be a false claim a judge can check against the repository in one click.
   - **Done when**: all fields drafted and within limits. The long description leads with the business problem (containment rate), not the architecture — "Business value" is a separate scored criterion and the description is where it is judged.
   - **Effort**: M · **Critical path**: Yes
 
-- [ ] T082 [P] Cover image at `assets/cover.png`
+- [x] T082 [P] Cover image at `assets/cover.png` — done 2026-09-11: assets/cover.png, 1920×1080, rendered from assets/src/cover.html
   - **What**: PNG or JPG, **16:9 aspect ratio** — both are hard format requirements.
   - **Done when**: file is 16:9, legible as a thumbnail, and names the product and the one-line value proposition.
   - **Effort**: S · **Critical path**: Yes
 
-- [ ] T083 Video presentation at `assets/demo.mp4`
+- [x] T083 Video presentation at `assets/demo.mp4` — done 2026-09-11: assets/demo.mp4, 1:55, recorded from the deployed Replit app
   - **What**: **MP4, mandatory.** Recorded from the deployed Replit URL, not localhost. Must show: a real interruption mid-sentence, the confirmation ritual before a return, and the live latency waterfall.
   - **Done when**: the video shows the agent being interrupted and recovering correctly, and states the measured p50/p95. The barge-in moment is the single most persuasive 10 seconds available — it is hard to fake and most submissions cannot show it.
   - **Effort**: L · **Critical path**: Yes
 
-- [ ] T084 [P] Slide presentation at `assets/slides.pdf`
+- [x] T084 [P] Slide presentation at `assets/slides.pdf` — done 2026-09-11: assets/slides.pdf, 10 slides, rendered from assets/src/slides.html
   - **What**: **PDF, mandatory.** Structure against the four judging criteria: problem and business value → why the harder Realtime STT path → architecture and measured latency → what makes it original.
   - **Done when**: exported as PDF; every slide maps to a scored criterion; no slide is architecture-for-its-own-sake.
   - **Effort**: M · **Critical path**: Yes
 
-- [ ] T085 Public GitHub repository with MIT `LICENSE`
+- [x] T085 Public GitHub repository with MIT `LICENSE` — done 2026-09-11: public repo, MIT LICENSE; full-history secret scan: 0 findings
   - **What**: `git init`, MIT LICENSE file, README with setup instructions and an architecture diagram, `.gitignore` excluding `.env`. Push public.
   - **Done when**: repo is **public**; a clean clone runs via quickstart.md; **a secret scan of the full history returns nothing** — this project holds three vendor API keys and history is not rewritable after judges have the link.
   - **Effort**: M · **Critical path**: Yes
