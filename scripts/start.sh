@@ -9,6 +9,12 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Replit's Python is Nix-managed and marked EXTERNALLY-MANAGED (PEP 668), so pip refuses
+# to install into it without this. The environment-variable form rather than the
+# --break-system-packages flag, because a pip too old to know the option ignores an
+# unknown variable but fails on an unknown flag. Inside a venv it changes nothing.
+export PIP_BREAK_SYSTEM_PACKAGES=1
+
 echo "==> installing backend dependencies"
 python -m pip install --quiet --upgrade pip
 python -m pip install --quiet -e "./backend"
