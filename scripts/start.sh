@@ -13,10 +13,16 @@ echo "==> installing backend dependencies"
 python -m pip install --quiet --upgrade pip
 python -m pip install --quiet -e "./backend"
 
-if [ ! -d frontend/dist ]; then
-  echo "==> building frontend"
-  (cd frontend && npm ci --silent 2>/dev/null || npm install --silent) && (cd frontend && npm run build)
+# Always build. Skipping the build whenever dist/ existed meant a redeploy shipped whatever
+# was built last — which is how the live app kept serving untranspiled worklets, with no
+# audio in either direction, after the fix was already pushed. Vite builds this in about
+# a second; only the dependency install is worth skipping.
+if [ ! -d frontend/node_modules ]; then
+  echo "==> installing frontend dependencies"
+  (cd frontend && (npm ci --silent 2>/dev/null || npm install --silent))
 fi
+echo "==> building frontend"
+(cd frontend && npm run build)
 
 echo "==> seeding demo fixtures"
 (cd backend && python -m src.adapters.store.seed)
