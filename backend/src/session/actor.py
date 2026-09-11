@@ -21,7 +21,9 @@ from typing import Any
 from src.core.barge_in import BargeInConfig, Decision, decide
 from src.core.clause_splitter import ClauseSplitter
 from src.core.clock import Clock, SystemClock
-from src.core.ports import ToolCall
+from src.core.confirmation import is_affirmative, seeks_confirmation
+from src.core.ports import ModelUnavailable, ToolCall
+from src.core.references import extract as extract_references
 from src.core.speculation import SpeculationConfig, Verdict, promotable, should_dispatch
 from src.core.turn_state import Trigger, TurnState, TurnStateMachine
 from src.obs import metrics
@@ -39,6 +41,25 @@ GREETING = "Hi, I'm an automated assistant for order support. What can I help yo
 MAX_SPEECH_DRAIN_S = 20.0
 """Ceiling on waiting for synthesis. Bounded so a hung provider ends the turn rather
 than holding the session open indefinitely."""
+
+
+_MODEL_ERROR_TEXT: dict[str, str] = {
+    "rate_limited": (
+        "Sorry — I couldn't get to that just now. Please say it again in a few seconds."
+    ),
+    "timeout": "Sorry — that took too long. Please say it again.",
+    "unauthorized": "Sorry — I can't answer right now. Please try again shortly.",
+    "unavailable": "Sorry — I can't answer right now. Please try again shortly.",
+}
+"""What the shopper is told when a turn produced no reply at all. About what they can
+do next, never about which provider failed or why (NFR-014)."""
+
+
+def _leaves(group: BaseException) -> list[BaseException]:
+    """Flatten nested exception groups — a TaskGroup nests them."""
+    if isinstance(group, BaseExceptionGroup):
+        return [leaf for sub in group.exceptions for leaf in _leaves(sub)]
+    return [group]
 
 
 _SPEECH_ERROR_TEXT: dict[str, str] = {
@@ -87,6 +108,9 @@ class SessionActor:
         self._turn_in_flight = False
         self._last_spoke_at = self._clock.now()
         self._awaiting_confirmation = False
+        # Set when the registry refuses a state-changing call for want of
+        # confirmation — a fact the system observed, not a guess about wording.
+        self._confirmation_refused = False
         self._current_turn_id = ""
         self._spoken_chars = 0
         self._interrupt_started: float | None = None
@@ -273,7 +297,7 @@ class SessionActor:
         # A bare affirmative while a confirmation is pending is the shopper consenting.
         # Recording it in the registry is what unlocks the state-changing tool — the
         # gate lives there, not in the prompt.
-        if self._awaiting_confirmation and _is_affirmative(text):
+        if self._awaiting_confirmation and is_affirmative(text):
             self._registry.confirm(turn_id)
         self._awaiting_confirmation = False
 
@@ -294,6 +318,7 @@ class SessionActor:
         self._cancel_speculation()
 
         # One task group per turn. Cancelling it cancels everything below.
+        self._confirmation_refused = False
         self._turn_in_flight = True
         self._turn_task = asyncio.create_task(self._run_turn(turn_id, promoted=promoted))
 
@@ -433,10 +458,14 @@ class SessionActor:
                             "speaker": "agent",
                         }
                     )
-                    # A read-back ending in a question is a pending confirmation; the next
-                    # affirmative unlocks the tool.
-                    self._awaiting_confirmation = full.rstrip().endswith("?") and (
-                        "shall i" in full.lower() or "go ahead" in full.lower()
+                    # A pending confirmation, from either signal: the registry actually
+                    # refused a state-changing call, or the reply reads as a request to
+                    # authorise one. The first covers a model that reaches for the tool
+                    # and is stopped; the second a well-behaved model that asks first,
+                    # where nothing was refused and there is no fact to read. Two
+                    # hard-coded phrases covered neither reliably (see core/confirmation).
+                    self._awaiting_confirmation = self._confirmation_refused or (
+                        seeks_confirmation(full)
                     )
 
                 # Wait for synthesis to actually finish rather than for a fixed delay.
@@ -459,6 +488,24 @@ class SessionActor:
             # Interrupted. Nothing further is spoken and no memory is written beyond the
             # truncation already applied.
             await self._finish_turn(timings, status="interrupted")
+        except* Exception as group:
+            # Anything else used to escape the task group unhandled: "Task exception was
+            # never retrieved" in the log, no `agent.done`, no word to the shopper, and a
+            # UI left saying "thinking" forever. The first time it happened was a Groq
+            # 429 at turn five of a rehearsal. A turn that cannot be answered must still
+            # end, and must say so.
+            await self._fail_turn(timings, group)
+
+    async def _fail_turn(self, timings: TurnTimings, group: BaseExceptionGroup) -> None:
+        kind = next(
+            (e.kind for e in _leaves(group) if isinstance(e, ModelUnavailable)),
+            "unavailable",
+        )
+        metrics.inc("turn_failures_total", {"kind": kind})
+        await self._send_control(
+            {"type": "error", "code": f"model_{kind}", "message": _MODEL_ERROR_TEXT[kind]}
+        )
+        await self._finish_turn(timings, status="failed")
 
     async def _invoke(
         self, call: ToolCall, turn_id: str, *, speculative: bool = False
@@ -486,7 +533,32 @@ class SessionActor:
             self._timings.record("tool", (time.monotonic() - started) * 1000)
         if not result.ok:
             metrics.inc("tool_failures_total", {"name": call.name})
-        return dict(result.content)
+
+        if result.error_code == "confirmation_required":
+            self._confirmation_refused = True
+
+        content = dict(result.content)
+        # A speculative turn may never reach the shopper — putting its findings on screen
+        # would be exactly that, and would also leak the answer to a question they have
+        # not finished asking (Architectural Principle 8).
+        if not speculative and result.ok:
+            await self._show_references(content)
+        return content
+
+    async def _show_references(self, content: dict[str, Any]) -> None:
+        """Put identifiers on screen, because the agent is about to say it did.
+
+        The persona forbids reading a tracking number aloud and tells the agent to say it
+        has been put on screen instead. Nothing was putting it there, so the one thing
+        the shopper needed was the one thing they never got — while the agent claimed
+        otherwise. The panel is filled before the reply is spoken, so it is already there
+        when the sentence pointing at it arrives.
+        """
+        for kind, label, value in extract_references(content):
+            await self._send_control(
+                {"type": "display.reference", "kind": kind, "label": label, "value": value}
+            )
+            metrics.inc("display_references_total", {"kind": kind})
 
     async def _holding_phrase(self, turn_id: str) -> None:
         """Fires only if the tool has not returned in time. Cancelled otherwise, so a
@@ -580,10 +652,3 @@ class _TurnComplete(Exception):
     A TaskGroup only exits when every child finishes, and the audio pump is an infinite
     consumer — so completion is signalled rather than waited for.
     """
-
-
-def _is_affirmative(text: str) -> bool:
-    tokens = text.lower().strip(" .!?,").split()
-    return bool(tokens) and len(tokens) <= 3 and tokens[0] in {
-        "yes", "yeah", "yep", "yup", "sure", "ok", "okay", "confirm", "go", "do",
-    }

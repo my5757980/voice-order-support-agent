@@ -77,6 +77,20 @@ class LlmChunk:
     stop_reason: str | None = None
 
 
+class ModelUnavailable(RuntimeError):
+    """The model could not produce a reply for this turn.
+
+    Raised by a `LanguageModel` adapter instead of a bare `RuntimeError` carrying a
+    vendor's response body. `kind` is deliberately coarse — the distinction the shopper
+    needs is "say it again in a moment" versus "this is not working right now"; the
+    status code and the provider's message belong in metrics and logs.
+    """
+
+    def __init__(self, kind: str, detail: str = "") -> None:
+        super().__init__(f"model {kind}: {detail}" if detail else f"model {kind}")
+        self.kind = kind
+
+
 @runtime_checkable
 class LanguageModel(Protocol):
     """Streaming text generation with tool use.

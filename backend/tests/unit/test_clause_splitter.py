@@ -119,3 +119,27 @@ def test_flush_returns_the_tail_once() -> None:
     s.feed("no terminator here")
     assert s.flush() == "no terminator here"
     assert s.flush() is None
+
+
+# -- invisible characters -------------------------------------------------
+
+
+def test_zero_width_characters_never_reach_speech_or_memory() -> None:
+    """A recorded run produced "We have a final" followed by several hundred U+200B
+    zero-width spaces. Every one was billed, stored in the transcript and memory, and
+    sent to a synthesizer that renders exactly nothing for them."""
+    from src.core.clause_splitter import ClauseSplitter
+
+    s = ClauseSplitter()
+    out = s.feed("Understood, no cancellation will be made." + "\u200b" * 400 + " ")
+    tail = s.flush()
+    spoken = "".join(out) + (tail or "")
+    assert "\u200b" not in spoken
+    assert "Understood" in spoken
+
+
+def test_strip_invisible_leaves_real_text_alone() -> None:
+    from src.core.clause_splitter import strip_invisible
+
+    assert strip_invisible("ORD\u200b-4488\ufeff costs $12.50") == "ORD-4488 costs $12.50"
+    assert strip_invisible("café naïve — fine") == "café naïve — fine"

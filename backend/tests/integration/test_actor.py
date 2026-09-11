@@ -297,3 +297,102 @@ async def test_silent_session_is_not_interrupted_by_the_first_thing_said(
     assert "audio.flush" not in sink.types(), "nobody interrupted anything"
     assert sink.of("agent.done")[0]["status"] == "complete"
     await a.close()
+
+
+# -- a model that does not answer ------------------------------------------
+
+
+class RateLimitedModel(FakeLanguageModel):
+    """Refuses the way Groq's free tier does at 8,000 tokens a minute."""
+
+    def stream(self, **_: Any):  # type: ignore[override]
+        from src.core.ports import ModelUnavailable
+
+        async def refuse():  # type: ignore[no-untyped-def]
+            raise ModelUnavailable("rate_limited", "tokens per minute (TPM): Limit 8000")
+            yield  # pragma: no cover — makes this an async generator
+
+        return refuse()
+
+
+@pytest.fixture
+def limited_actor(tmp_path: Path) -> tuple[SessionActor, Sink]:
+    conn: sqlite3.Connection = connect(str(tmp_path / "limited.db"))
+    seed(conn)
+    sink = Sink()
+    a = SessionActor(
+        session_id="sess-limited",
+        customer_id=DEMO_CUSTOMER_ID,
+        repo=OrderRepository(conn, DEMO_CUSTOMER_ID),
+        registry=build_registry(),
+        llm=RateLimitedModel(),
+        tts=FakeSpeechSynthesizer(realtime=False),
+        send_control=sink.send_control,
+        send_audio=sink.send_audio,
+    )
+    return a, sink
+
+
+async def _until_done(sink: Sink) -> None:
+    for _ in range(300):
+        await asyncio.sleep(0.01)
+        if sink.of("agent.done"):
+            return
+    pytest.fail("the turn never ended")
+
+
+async def test_a_refused_model_still_ends_the_turn(
+    limited_actor: tuple[SessionActor, Sink],
+) -> None:
+    """Regression: the 429 escaped the task group unhandled. No `agent.done` was ever
+    sent, so the browser sat in "thinking" for the rest of the session."""
+    a, sink = limited_actor
+    await a.on_committed("what was the total on that order?")
+    await _until_done(sink)
+    assert sink.of("agent.done")[0]["status"] == "failed"
+    await a.close()
+
+
+async def test_the_shopper_is_told_in_words_that_name_no_vendor(
+    limited_actor: tuple[SessionActor, Sink],
+) -> None:
+    a, sink = limited_actor
+    await a.on_committed("what was the total on that order?")
+    await _until_done(sink)
+    (error,) = sink.of("error")
+    assert error["code"] == "model_rate_limited"
+    text = error["message"].lower()
+    assert "again" in text, "it must say what the shopper can do"
+    for leak in ("groq", "429", "tpm", "token", "limit 8000"):
+        assert leak not in text, leak
+    await a.close()
+
+
+async def test_the_error_arrives_before_the_turn_ends(
+    limited_actor: tuple[SessionActor, Sink],
+) -> None:
+    """`agent.done` is terminal for a turn; a consumer reading up to it must already
+    have everything it needs to know about the turn."""
+    a, sink = limited_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    kinds = sink.types()
+    assert kinds.index("error") < kinds.index("agent.done")
+    await a.close()
+
+
+async def test_the_session_survives_to_answer_the_next_turn(
+    limited_actor: tuple[SessionActor, Sink],
+) -> None:
+    """A failed turn is one turn, not a dead session."""
+    a, sink = limited_actor
+    await a.on_committed("where's my order?")
+    await _until_done(sink)
+    a._llm = FakeLanguageModel(token_delay_s=0.001)  # the limit window rolls over
+    await a.on_committed("where's my order?")
+    for _ in range(300):
+        await asyncio.sleep(0.01)
+        if len(sink.of("agent.done")) >= 2:
+            break
+    assert [m["status"] for m in sink.of("agent.done")] == ["failed", "complete"]
+    await a.close()

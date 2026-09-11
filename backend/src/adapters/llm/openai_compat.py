@@ -26,11 +26,21 @@ from typing import Any
 
 import httpx
 
-from src.core.ports import LlmChunk, ToolCall
+from src.core.ports import LlmChunk, ModelUnavailable, ToolCall
 from src.obs import metrics
 from src.tools.definitions import openai_tools
 
+
 # Known providers. `base_url` is all that distinguishes them.
+def _classify(status: int) -> str:
+    """Provider status to a cause the shopper can be told about — coarse on purpose."""
+    if status == 429:
+        return "rate_limited"
+    if status in (401, 403):
+        return "unauthorized"
+    return "unavailable"
+
+
 PROVIDERS: dict[str, str] = {
     "groq": "https://api.groq.com/openai/v1",
     "gemini": "https://generativelanguage.googleapis.com/v1beta/openai",
@@ -115,7 +125,7 @@ class OpenAICompatLanguageModel:
                 if response.status_code != 200:
                     body = (await response.aread()).decode()[:300]
                     metrics.inc("llm_errors_total", {"class": f"http_{response.status_code}"})
-                    raise RuntimeError(f"llm {response.status_code}: {body}")
+                    raise ModelUnavailable(_classify(response.status_code), body)
 
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):
@@ -144,9 +154,12 @@ class OpenAICompatLanguageModel:
                     if choice.get("finish_reason"):
                         stop_reason = choice["finish_reason"]
 
-        except httpx.TimeoutException:
+        except httpx.TimeoutException as exc:
             metrics.inc("llm_errors_total", {"class": "timeout"})
-            raise
+            raise ModelUnavailable("timeout") from exc
+        except httpx.HTTPError as exc:
+            metrics.inc("llm_errors_total", {"class": "transport"})
+            raise ModelUnavailable("unavailable") from exc
 
         if partial:
             yield LlmChunk(tool_calls=tuple(_finish_calls(partial)), stop_reason="tool_use")

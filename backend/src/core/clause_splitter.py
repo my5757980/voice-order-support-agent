@@ -7,6 +7,12 @@ TTS within a couple of tokens of the model starting.
 The one thing it must never do is split inside a number, a currency amount, or an order
 reference. "Your total is forty-two" / "dollars fifty" is not a prosody flaw, it is the
 agent sounding broken — so digit runs hold the buffer open (VID-007).
+
+It is also where invisible characters are removed, because this is the last point before
+text becomes speech and memory. A model is perfectly capable of emitting a run of several
+hundred zero-width spaces — one did, mid-demo — and every one of them is billed, stored
+in the transcript the shopper reads back, and sent to a synthesizer that will render
+exactly nothing for them.
 """
 
 from __future__ import annotations
@@ -20,6 +26,16 @@ SOFT_WORD_CAP = 12
 # order references like "ORD-4471" and "R-EA8923".
 _OPEN_NUMBER = re.compile(r"[\d$£€][\d\s.,:/-]*$|[A-Z]{2,}-[A-Z0-9]*$")
 
+# Zero-width space/non-joiner/joiner, word joiner, BOM, and the bidirectional marks.
+# None of them survives being spoken, and a long run of them is indistinguishable from
+# text until it reaches the bill.
+_INVISIBLE = re.compile("[\u200b-\u200f\u2028\u2029\u2060\ufeff]")
+
+
+def strip_invisible(text: str) -> str:
+    """Remove characters that occupy the transcript but can never be heard."""
+    return _INVISIBLE.sub("", text)
+
 
 class ClauseSplitter:
     """Feed tokens in, get speakable clauses out."""
@@ -30,7 +46,7 @@ class ClauseSplitter:
 
     def feed(self, token: str) -> list[str]:
         """Add a token; return any clauses that became speakable."""
-        self._buffer += token
+        self._buffer += strip_invisible(token)
         out: list[str] = []
 
         while (clause := self._take()) is not None:
