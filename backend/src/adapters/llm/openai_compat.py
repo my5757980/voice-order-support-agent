@@ -19,8 +19,10 @@ that fails locally and passes deployed is a budget we have not actually tested.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import os
+import re
 from collections.abc import AsyncIterator, Sequence
 from typing import Any
 
@@ -30,8 +32,36 @@ from src.core.ports import LlmChunk, ModelUnavailable, ToolCall
 from src.obs import metrics
 from src.tools.definitions import openai_tools
 
-
 # Known providers. `base_url` is all that distinguishes them.
+_RATE_LIMIT_ATTEMPTS = 2
+"""One retry. A second refusal means the window is genuinely exhausted — keep waiting
+and the shopper is sitting in silence for half a minute."""
+
+_MAX_RATE_LIMIT_WAIT_S = 15.0
+"""Longer than this is a daily limit, not a per-minute one, and no pause fixes it."""
+
+_TRY_AGAIN = re.compile(r"try again in (?:(\d+)m)?([\d.]+)s", re.IGNORECASE)
+
+
+def _retry_after(headers: Any, body: str) -> float | None:
+    """How long the provider asked us to wait, from whichever place it said so.
+
+    The standard `retry-after` header when present; otherwise Groq's own sentence in the
+    body, "Please try again in 11.235s" — which is the one that actually arrived.
+    """
+    raw = headers.get("retry-after") if headers is not None else None
+    if raw:
+        try:
+            return max(0.0, float(raw))
+        except ValueError:
+            pass
+    match = _TRY_AGAIN.search(body or "")
+    if match:
+        minutes = float(match.group(1) or 0)
+        return minutes * 60 + float(match.group(2))
+    return None
+
+
 def _classify(status: int) -> str:
     """Provider status to a cause the shopper can be told about — coarse on purpose."""
     if status == 429:
@@ -103,6 +133,44 @@ class OpenAICompatLanguageModel:
         messages: Sequence[dict[str, object]],
         speculative: bool = False,
     ) -> AsyncIterator[LlmChunk]:
+        """Stream a reply, waiting out one rate-limit refusal if the wait is short.
+
+        Groq's free tier allows 8,000 tokens a minute over a rolling window, and one
+        turn with a tool call spends about 4,000 of them. A refusal arrives with the
+        provider's own estimate of when the window frees up — typically ten to fifteen
+        seconds. Waiting that long once is a pause; not waiting is a failed turn and a
+        shopper asked to repeat themselves.
+
+        Retried only before anything has been yielded. After the first chunk the reply
+        is already being spoken, and a second attempt would speak it twice. Speculative
+        turns are never retried: a speculation that has to wait has already lost the
+        race it exists to win.
+        """
+        for attempt in range(_RATE_LIMIT_ATTEMPTS):
+            started = False
+            try:
+                async for chunk in self._stream_once(messages=messages):
+                    started = True
+                    yield chunk
+                return
+            except ModelUnavailable as exc:
+                wait = exc.retry_after
+                retryable = (
+                    exc.kind == "rate_limited"
+                    and not started
+                    and not speculative
+                    and attempt + 1 < _RATE_LIMIT_ATTEMPTS
+                    and wait is not None
+                    and wait <= _MAX_RATE_LIMIT_WAIT_S
+                )
+                if not retryable:
+                    raise
+                metrics.inc("llm_retries_total", {"class": "rate_limited"})
+                await asyncio.sleep(wait)
+
+    async def _stream_once(
+        self, *, messages: Sequence[dict[str, object]]
+    ) -> AsyncIterator[LlmChunk]:
         payload: dict[str, Any] = {
             "model": self._model,
             "stream": True,
@@ -125,7 +193,11 @@ class OpenAICompatLanguageModel:
                 if response.status_code != 200:
                     body = (await response.aread()).decode()[:300]
                     metrics.inc("llm_errors_total", {"class": f"http_{response.status_code}"})
-                    raise ModelUnavailable(_classify(response.status_code), body)
+                    raise ModelUnavailable(
+                        _classify(response.status_code),
+                        body,
+                        retry_after=_retry_after(response.headers, body),
+                    )
 
                 async for line in response.aiter_lines():
                     if not line.startswith("data:"):

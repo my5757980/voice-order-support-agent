@@ -86,9 +86,11 @@ class ModelUnavailable(RuntimeError):
     status code and the provider's message belong in metrics and logs.
     """
 
-    def __init__(self, kind: str, detail: str = "") -> None:
+    def __init__(self, kind: str, detail: str = "", *, retry_after: float | None = None) -> None:
         super().__init__(f"model {kind}: {detail}" if detail else f"model {kind}")
         self.kind = kind
+        self.retry_after = retry_after
+        """Seconds the provider said to wait, when it said. None means it did not."""
 
 
 @runtime_checkable
