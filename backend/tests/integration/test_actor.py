@@ -522,3 +522,32 @@ class SlowToStartModel(FakeLanguageModel):
                 yield chunk
 
         return slow()
+
+
+
+# -- dead air -------------------------------------------------------------------------
+
+
+class SpeechlessModel(FakeLanguageModel):
+    """Ends the turn without a single word, as gpt-oss did on the deployed app when its
+    reasoning spent the whole token budget."""
+
+    def stream(self, **_: Any):  # type: ignore[override]
+        from src.core.ports import LlmChunk
+
+        async def nothing():  # type: ignore[no-untyped-def]
+            yield LlmChunk(stop_reason="length")
+
+        return nothing()
+
+
+async def test_a_turn_with_nothing_to_say_still_says_something(burst_actor) -> None:  # type: ignore[no-untyped-def]
+    a, sink = burst_actor
+    a._llm = SpeechlessModel()
+    await a.on_committed("yes, go ahead")
+    await _until_done(sink)
+
+    said = [m["text"] for m in sink.of("transcript.committed") if m["speaker"] == "agent"]
+    assert said, "the shopper heard nothing at all"
+    assert "again" in said[-1].lower(), "it must tell the shopper what to do"
+    assert sink.audio_frames > 0

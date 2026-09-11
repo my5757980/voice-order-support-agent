@@ -55,6 +55,17 @@ the ritual — which is exactly what happened."""
 
 _TRAILING = re.compile(r"[\s\"')\]]*$")
 
+# An offer to *do* something is a request for permission; an offer to *tell* something is
+# not. "Do you want to cancel order ORD-4488?" went unrecognised on the deployed app — the
+# phrase list had "do you want me to" but not "do you want to" — and the shopper's
+# "Yes, go ahead." opened no gate. Requiring an action verb keeps "Do you want to hear the
+# tracking number?" from arming it.
+_OFFER_TO_ACT = re.compile(
+    r"\b(do you want|would you like|should i|shall i|can i|may i|shall we|should we)\b"
+    r".*\b(cancel|return|refund|change|update|proceed|go ahead|start|create|process|submit|"
+    r"replace|exchange|place)\b"
+)
+
 
 def seeks_confirmation(text: str) -> bool:
     """Whether an agent turn is asking the shopper to authorise an action.
@@ -67,7 +78,7 @@ def seeks_confirmation(text: str) -> bool:
     if not stripped.endswith("?"):
         return False
     lowered = stripped.lower()
-    return any(phrase in lowered for phrase in _ASKS)
+    return any(phrase in lowered for phrase in _ASKS) or bool(_OFFER_TO_ACT.search(lowered))
 
 
 # -- the shopper's side of the ritual -------------------------------------

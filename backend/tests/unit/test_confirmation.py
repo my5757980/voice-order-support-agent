@@ -26,6 +26,11 @@ from src.core.confirmation import is_affirmative, seeks_confirmation
         "Would you like me to cancel the mug order?",
         "I can start a return for the lamp. Is that okay?",
         'Do you want me to proceed?"',
+        # Verbatim from the deployed app; the old phrase list missed it and the
+        # shopper's "Yes, go ahead." opened no gate.
+        "The desk lamp order hasn't shipped yet, so it can't be returned; we can cancel it "
+        "instead. Do you want to cancel order ORD-4488?",
+        "Would you like to start a return for the mug?",
     ],
 )
 def test_requests_for_permission_are_recognised(reply: str) -> None:
@@ -38,6 +43,10 @@ def test_requests_for_permission_are_recognised(reply: str) -> None:
         "I'll go ahead and check that for you.",           # a report, not a question
         "Your headphones arrive on the eleventh. Anything else?",  # a question, not permission
         "Which order would you like the status for?",
+        # An offer to tell, not to act: arming the gate here would let a later "yes"
+        # authorise something nobody read back.
+        "Do you want to hear the tracking number?",
+        "Would you like the delivery date?",
         "",
     ],
 )

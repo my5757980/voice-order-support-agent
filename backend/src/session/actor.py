@@ -57,6 +57,11 @@ def _whole_words(text: str, n: int) -> str:
     return cut.rstrip()
 
 
+_NOTHING_SAID = "Sorry, something went wrong on my side. Could you say that again?"
+"""Spoken when a turn would otherwise end in silence. About the agent, not the shopper:
+it is never their fault that the model produced nothing."""
+
+
 _SAMPLE_RATE = 16_000
 """The playback format, PCM16 mono — what the browser's worklet renders."""
 
@@ -513,6 +518,15 @@ class SessionActor:
                 if (tail := splitter.flush()) is not None:
                     spoken.append(tail)
                     await self._tts.submit(tail, turn_id)
+
+                if not spoken:
+                    # The model ended the turn without a word: a refused tool it chose not
+                    # to explain, or a reasoning budget spent before the answer began.
+                    # Both happened on the deployed app, and the shopper heard nothing at
+                    # all. Dead air is the one thing a voice agent must never produce.
+                    metrics.inc("empty_replies_total")
+                    spoken.append(_NOTHING_SAID)
+                    await self._tts.submit(_NOTHING_SAID, turn_id)
 
                 timings.mark_from_turn_start("llm.complete")
 

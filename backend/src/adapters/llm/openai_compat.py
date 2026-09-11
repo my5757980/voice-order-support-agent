@@ -110,6 +110,14 @@ class OpenAICompatLanguageModel:
         self._max_tokens = max_tokens
         self._temperature = temperature
         self._system = system_prompt
+        # gpt-oss is a reasoning model, and max_tokens covers its reasoning as well as its
+        # answer. At the provider's default effort the reasoning spent the whole budget:
+        # on the deployed app one turn produced no words at all and the next stopped at
+        # "I wasn't able to". Locally `.env` said LLM_REASONING_EFFORT=low, so it never
+        # happened there — and `.env` is not what a deployment reads. The default belongs
+        # here, next to the model that needs it.
+        if reasoning_effort is None and "gpt-oss" in self._model:
+            reasoning_effort = "low"
         self._reasoning_effort = reasoning_effort
         self.provider = provider
 
