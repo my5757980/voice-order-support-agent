@@ -10,6 +10,9 @@ run = "bash scripts/start.sh"
 run = ["bash", "scripts/start.sh"]
 deploymentTarget = "cloudrun"
 
+# One port, everywhere. The workspace workflow once ran the app on 5000 while this
+# mapping sent the public URL to 8000, so the app was healthy on :5000 and the address
+# anyone would actually open returned 502. start.sh defaults to 8000; nothing overrides it.
 [[ports]]
 localPort = 8000
 externalPort = 80
@@ -20,4 +23,26 @@ PYTHONPATH = "backend"
 DATABASE_PATH = "./data/orders.db"
 
 [nix]
-channel = "stable-24_05"
+channel = "stable-25_05"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "bash scripts/start.sh"
+waitForPort = 8000
+
+[workflows.workflow.metadata]
+outputType = "webview"

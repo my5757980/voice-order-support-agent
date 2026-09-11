@@ -44,3 +44,7 @@ frontend/public/worklets/
 
 # Demo recording working directory — raw takes, muxed output lives in docs/.
 .demo-recording/
+
+# Screenshots and page snapshots from driving the Replit workspace.
+/replit-*.png
+/replit-*.md
