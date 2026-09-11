@@ -31,6 +31,27 @@ import websockets
 from src.core.events import UserPartial, UserTurnCommitted
 from src.obs import metrics
 
+
+def _live_text(message: dict[str, object]) -> str:
+    """Everything heard so far in this turn, including words not yet final.
+
+    `transcript` on a v3 Turn message holds finalized words only; words still being
+    recognised appear only in `words`, flagged `word_is_final: false`. Partials used to be
+    built from `transcript`, so each word surfaced about a second after it was spoken — on
+    the deployed app a shopper talking over the agent produced one partial, "Sorry,", 1.6 s
+    in, and the agent kept talking until the whole sentence had been committed. Barge-in
+    needs the words as soon as they exist.
+
+    Only partials use this. They are advisory — they drive barge-in and speculation, and
+    never reach memory; a committed turn is always the final transcript (principle II).
+    """
+    words = message.get("words")
+    if not isinstance(words, list):
+        return ""
+    return " ".join(str(w.get("text", "")).strip() for w in words
+                    if isinstance(w, dict) and str(w.get("text", "")).strip())
+
+
 ENDPOINT = "wss://streaming.assemblyai.com/v3/ws"
 KEEPALIVE_INTERVAL_S = 20.0
 MAX_BACKOFF_S = 8.0
@@ -175,7 +196,7 @@ class AssemblyAISpeechRecognizer:
 
     def _on_turn(self, message: dict[str, object]) -> None:
         transcript = str(message.get("transcript", "")).strip()
-        if not transcript:
+        if not transcript and not (message.get("words") and not message.get("end_of_turn")):
             return
 
         turn_order = int(message.get("turn_order", 0))
@@ -200,7 +221,7 @@ class AssemblyAISpeechRecognizer:
                 UserPartial(
                     session_id=self._session_id,
                     turn_id="",
-                    text=transcript,
+                    text=_live_text(message) or transcript,
                     turn_order=turn_order,
                     end_of_turn_confidence=confidence,
                 )

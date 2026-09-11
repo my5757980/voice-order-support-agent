@@ -124,7 +124,7 @@ as one sequence rather than per-component behaviour:
 
 ```text
 t+0ms    AssemblyAI emits a partial Turn while agent_speaking == True
-t+2ms    BackchannelFilter evaluates: word count ≥ 2 AND not all-backchannel?
+t+2ms    BackchannelFilter evaluates: not all-backchannel AND not one slight word?
            └─ suppressed → drop, agent keeps talking, emit metric, DONE
 t+3ms    Orchestrator declares INTERRUPTED
 t+4ms    ── three things happen concurrently, none waits for another ──
@@ -418,10 +418,27 @@ def should_interrupt(text, agent_speaking, now, last_spoke_at, awaiting_confirma
         return Decision.INTERRUPT        # FR-010: a "yes" answering a confirmation is a real answer
     if not agent_speaking and (now - last_spoke_at) > GRACE_WINDOW:
         return Decision.INTERRUPT        # not speaking, not in grace → normal turn
-    if len(text.split()) < MIN_WORDS or all_backchannel(text):
+    if all_backchannel(text) or (len(words) < MIN_WORDS and all(w in SLIGHT for w in words)):
         return Decision.SUPPRESS         # FR-009
     return Decision.INTERRUPT
 ```
+
+**Amended 2026-09-11, on measurement.** The filter originally held back *any* utterance
+shorter than two words. With AssemblyAI streaming, that means waiting for a second
+partial: a synthesized "Sorry, where's my order?" fed through the real capture path gave
+its first partial about 0.5 s in and its second about 1.8 s in, so the agent talked over
+the shopper for well over a second — and in a recorded take, until the whole sentence
+had been committed, 3.0 s after the shopper began. Two changes, both measured:
+
+1. Partials are built from every word in the Turn message, including words not yet
+   final. `transcript` holds finalized words only (AssemblyAI API spec), which surfaced
+   each word about a second late.
+2. A single word now interrupts unless it is a backchannel or one of a short list of
+   *slight* words — articles and particles a stray noise transcribes as. Real filler is
+   the backchannel set, which still never interrupts (SC-007).
+
+The risk accepted is a single echoed word triggering self-interruption if browser echo
+cancellation fails; the two-word rule carried the same risk one word later.
 
 `awaiting_confirmation` is checked **first** and deliberately. It is the collision the spec called
 out (FR-010 vs FR-009): a bare "yes" is a backchannel during narration but a real answer during a

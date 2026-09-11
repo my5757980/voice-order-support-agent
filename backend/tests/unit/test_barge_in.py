@@ -70,8 +70,15 @@ def test_real_speech_interrupts() -> None:
     assert _decide("no wait the other order", speaking=True) is Decision.INTERRUPT
 
 
-def test_single_word_is_filler_while_speaking() -> None:
-    assert _decide("cancel", speaking=True) is Decision.SUPPRESS
+def test_a_single_slight_word_is_filler_while_speaking() -> None:
+    """What a stray noise transcribes as: not enough to stop the agent."""
+    assert _decide("the", speaking=True) is Decision.SUPPRESS
+
+
+def test_a_single_real_word_interrupts_while_speaking() -> None:
+    """"cancel" over the agent is not filler. The rule used to demand two words, and
+    streaming STT delivers the second about 1.3 s after the first (plan.md, amended)."""
+    assert _decide("cancel", speaking=True) is Decision.INTERRUPT
 
 
 def test_two_words_meets_the_minimum() -> None:
@@ -119,3 +126,28 @@ def test_min_words_is_configurable() -> None:
         )
         is Decision.INTERRUPT
     )
+
+
+# -- a word that means stop ----------------------------------------------------------
+
+import pytest as _pytest  # noqa: E402
+
+
+@_pytest.mark.parametrize("word", ["Sorry,", "So", "wait", "Stop!", "no", "actually", "hello?"])
+def test_a_single_stop_word_interrupts_at_once(word: str) -> None:
+    """Measured with real streaming STT: "Sorry, where's my order?" produced its first
+    partial about 0.5 s in and its second 1.8 s in. Holding one-word partials back as
+    possible filler kept the agent talking over the shopper for that whole gap."""
+    from src.core.barge_in import Decision, decide
+
+    assert decide(word, agent_speaking=True, awaiting_confirmation=False,
+                  now=10.0, last_spoke_at=9.0) is Decision.INTERRUPT
+
+
+@_pytest.mark.parametrize("word", ["mhm", "okay", "yeah", "the", "uh"])
+def test_a_single_filler_word_still_does_not(word: str) -> None:
+    """SC-007 still holds: a one-word backchannel, or a stray word, is not a barge-in."""
+    from src.core.barge_in import Decision, decide
+
+    assert decide(word, agent_speaking=True, awaiting_confirmation=False,
+                  now=10.0, last_spoke_at=9.0) is Decision.SUPPRESS

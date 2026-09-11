@@ -33,6 +33,18 @@ DEFAULT_BACKCHANNELS: frozenset[str] = frozenset(
     }
 )
 
+SLIGHT_WORDS: frozenset[str] = frozenset(
+    {"the", "a", "an", "and", "to", "of", "it", "is", "in", "i", "on", "at", "be"}
+)
+"""Single words too slight to mean anything yet — the kind a stray noise transcribes as.
+
+Every other single word over the agent is speech, and barges in at once. The rule used to
+hold back any one-word utterance as possible filler, which with streaming STT means
+waiting for a second partial: measured, "Sorry, where's my order?" gave its first partial
+("So", then "Sorry,") about 0.5 s in and its second 1.8 s in. Waiting for two words kept
+the agent talking over the shopper for that whole gap. Real filler is the backchannel
+list, and that still never interrupts."""
+
 AFFIRMATIVES: frozenset[str] = frozenset(
     {"yes", "yeah", "yep", "yup", "sure", "ok", "okay", "correct", "confirm", "do", "go"}
 )
@@ -105,8 +117,12 @@ def decide(
     if not agent_speaking and (now - last_spoke_at) > cfg.grace_seconds:
         return Decision.INTERRUPT
 
-    # 3. Filler while the agent holds the floor.
-    if len(text.split()) < cfg.min_words or is_all_backchannel(text, cfg.backchannels):
+    # 3. Filler while the agent holds the floor: backchannels, and utterances shorter
+    #    than `min_words` made only of words too slight to mean anything yet.
+    toks = _tokens(text)
+    if not toks or is_all_backchannel(text, cfg.backchannels):
+        return Decision.SUPPRESS
+    if len(toks) < cfg.min_words and all(t in SLIGHT_WORDS for t in toks):
         return Decision.SUPPRESS
 
     # 4. Real speech over the agent.
