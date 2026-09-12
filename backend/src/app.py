@@ -82,6 +82,12 @@ _registry = build_registry()
 _sessions: dict[str, SessionActor] = {}
 _recognizers: dict[str, Any] = {}
 _pending: dict[str, dict[str, Any]] = {}
+# One event per session, set when the two sockets have been paired into an actor.
+_pairings: dict[str, asyncio.Event] = {}
+# How long the control socket waits for the audio socket. Measured worst gap on a loaded
+# page: 5.7 s. Waiting too little kills the session in silence, so this is deliberately
+# far clear of anything observed.
+PAIRING_TIMEOUT_S = 30.0
 
 
 async def _pump_transcripts(session_id: str, recognizer: Any, actor: SessionActor) -> None:
@@ -159,6 +165,12 @@ async def control_socket(websocket: WebSocket) -> None:
     actor = await _await_actor(session_id)
     if actor is not None:
         await _start_session_tasks(session_id, actor, send_control)
+    else:
+        await send_control({
+            "type": "error",
+            "message": "The audio connection never arrived, so listening could not start. "
+                       "Reload the page to try again.",
+        })
 
     try:
         while True:
@@ -230,19 +242,33 @@ async def _try_start(session_id: str, customer_id: str) -> None:
         send_audio=parts["audio"],
     )
     _sessions[session_id] = actor
+    _paired(session_id).set()
 
 
+def _paired(session_id: str) -> asyncio.Event:
+    """Set once both sockets have arrived and the actor exists."""
+    return _pairings.setdefault(session_id, asyncio.Event())
 
 
-async def _await_actor(session_id: str, timeout_s: float = 5.0) -> SessionActor | None:
-    """Wait for both sockets to arrive so the actor exists."""
-    deadline = asyncio.get_running_loop().time() + timeout_s
-    while asyncio.get_running_loop().time() < deadline:
-        actor = _sessions.get(session_id)
-        if actor is not None:
-            return actor
-        await asyncio.sleep(0.02)
-    return None
+async def _await_actor(session_id: str, timeout_s: float | None = None) -> SessionActor | None:
+    """Wait for the second socket, so the actor exists.
+
+    The browser opens both sockets in the same breath, but they do not arrive together:
+    with the page under load the audio socket has been measured arriving 5.7 s behind the
+    control socket. The old five-second window expired in between, and the cost was
+    silent — the session stayed connected with no transcriber, no greeting and no error,
+    which looks exactly like an app that does not work. So the wait is generous, it is
+    woken rather than polled, and the caller says something when it runs out.
+    """
+    actor = _sessions.get(session_id)
+    if actor is not None:
+        return actor
+    with contextlib.suppress(asyncio.TimeoutError):
+        await asyncio.wait_for(
+            _paired(session_id).wait(),
+            PAIRING_TIMEOUT_S if timeout_s is None else timeout_s,
+        )
+    return _sessions.get(session_id)
 
 
 async def _start_session_tasks(session_id: str, actor: SessionActor, send_control: Any) -> None:
@@ -288,6 +314,7 @@ async def _handle_client_message(session_id: str, message: dict[str, Any]) -> No
 async def _teardown(session_id: str) -> None:
     actor = _sessions.pop(session_id, None)
     _pending.pop(session_id, None)
+    _pairings.pop(session_id, None)
     recognizer = _recognizers.pop(session_id, None)
     if recognizer is not None:
         with contextlib.suppress(Exception):

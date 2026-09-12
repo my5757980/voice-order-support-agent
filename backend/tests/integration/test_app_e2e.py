@@ -179,3 +179,29 @@ def test_metrics_endpoint_exposes_prometheus_text(client: TestClient) -> None:
 
 def test_metrics_snapshot_is_json(client: TestClient) -> None:
     assert "percentiles" in client.get("/api/metrics").json()
+
+
+# -- pairing the two sockets -----------------------------------------------
+#
+# The browser asks for both sockets at once, but they do not arrive together: on a loaded
+# page the audio socket was measured 5.7 s behind the control socket, past the five-second
+# window the control socket used to give it. Nothing failed — the session simply sat there
+# with no transcriber, no greeting, and nothing said about it.
+
+
+def test_a_session_whose_audio_socket_never_arrives_says_so(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(app_module, "PAIRING_TIMEOUT_S", 0.2)
+    token = client.post("/api/session").json()["token"]
+    with client.websocket_connect(f"/ws/control?session={token}") as control:
+        assert json.loads(control.receive_text())["type"] == "session.ready"
+        message = json.loads(control.receive_text())
+    assert message["type"] == "error"
+    assert "audio connection" in message["message"]
+
+
+def test_the_pairing_window_is_well_clear_of_the_worst_gap_measured() -> None:
+    # 5.7 s is what a 1080p screen recording of the app produced. The window has to be
+    # generous enough that a slow phone on a slow network is not cut off either.
+    assert app_module.PAIRING_TIMEOUT_S >= 20.0
