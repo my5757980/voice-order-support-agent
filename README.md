@@ -16,9 +16,9 @@ where your order is, then talk over the answer.
 | Submission text | [`SUBMISSION.md`](SUBMISSION.md) |
 
 Measured on the recorded run against the deployed app: the agent went silent **1.14 s**
-after the shopper started talking over it, and answered **3.2 s** (median) after the
-shopper finished. The live demo runs on Groq's free tier — 8,000 tokens a minute — so it
-serves one conversation at a time.
+after the shopper started talking over it, and answered **3.0 s** (median) after the
+shopper finished. The live demo runs on Groq's free tier — 8,000 model tokens and ten voice
+requests a minute — so it serves one conversation at a time.
 
 ![Voice Order Support Agent](assets/cover.png)
 

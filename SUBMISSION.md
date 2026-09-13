@@ -50,9 +50,10 @@ shopper's trailing silence, and the registry makes a speculative turn structural
 
 **Measured, and shown.** Every turn draws a latency waterfall on screen — first token, tool, first
 audio, end to end. On the recorded run against the deployed app: the agent stopped talking
-1.14 s after the shopper started speaking, and answered 3.2 s (median) after the
+1.14 s after the shopper started speaking, and answered 3.0 s (median) after the
 shopper finished. Honest caveat: on Groq's free tier the model is capped at 8,000 tokens a
-minute, so the live demo serves one conversation at a time.
+minute and the voice at ten requests a minute, so the live demo serves one conversation at a
+time.
 
 **Stack.** AssemblyAI Universal-Streaming (v3 WebSocket, balanced turn detection) · Groq
 `openai/gpt-oss-120b` with a manual tool loop · Groq / Canopy Labs Orpheus TTS · FastAPI +

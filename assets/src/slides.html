@@ -134,10 +134,10 @@
   <h2>Every turn draws its own latency waterfall.</h2>
   <p>First token · tool · first audio · end to end — on screen, per turn, from spans recorded server-side.</p>
   <div class="stat">
-    <div><div class="big">3.2 s</div><p>shopper stops → agent’s voice<br><span class="muted">median, recorded run</span></p></div>
+    <div><div class="big">3.0 s</div><p>shopper stops → agent’s voice<br><span class="muted">median, recorded run</span></p></div>
     <div><div class="big">1.14 s</div><p>talked over → silent<br><span class="muted">same run</span></p></div>
   </div>
-  <p class="muted" style="margin-top:50px">Honest caveat: Groq’s free tier caps the model at 8,000 tokens a minute — the live demo serves one conversation at a time.</p>
+  <p class="muted" style="margin-top:50px">Honest caveat: Groq’s free tier caps the model at 8,000 tokens and the voice at 10 requests a minute — the live demo serves one conversation at a time.</p>
   <div class="num">7</div>
 </section>
 
@@ -151,6 +151,7 @@
     <li>Barge-in was <b>impossible while a finished reply was still playing</b> — now the server models the browser’s playback.</li>
     <li>Partials used finalized words only: the agent stopped <b>3.0 s</b> after being interrupted. Now about a second.</li>
     <li>“Do you want to cancel it?” <b>did not arm the confirmation</b>; a reasoning budget left turns <b>silent</b>. Both fixed, both tested.</li>
+    <li>The voice <b>cut out on the second turn</b> with 90 of 100 daily requests unused: a 10-a-minute cap the headers never show. A reply is now two requests, not one per clause.</li>
   </ul>
   <div class="num">8</div>
 </section>
