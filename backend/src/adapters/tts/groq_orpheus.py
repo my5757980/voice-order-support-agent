@@ -54,6 +54,30 @@ _FAILURE_MEMORY = 32
 """Turns to remember a synthesis failure for. Bounded because an unbounded map keyed by
 turn id is a slow leak on a long session."""
 
+# How a reply is cut into requests.
+#
+# Groq's free tier allows this model ten requests a minute, and the limit is not in the
+# response headers — they report the daily allowance, which looked healthy the whole time.
+# Sending every clause as its own request is the natural shape for latency, and it spent
+# twelve requests in the first sixteen seconds of the demo: a greeting, one answer, and an
+# interruption. The voice cut out on the second turn while ninety requests a day remained.
+#
+# So a reply goes out in as few requests as the ear allows. The opening words go alone,
+# because they are what the shopper is waiting to hear and a short request comes back
+# fastest. Everything after is merged and sent when the reply ends — or after a short
+# hold, so words spoken before a slow tool call are not kept back until the tool returns.
+FIRST_CHUNK_WORDS = 4
+"""The first request of a reply waits for at least this many words. "Hi," alone costs a
+request and buys nothing."""
+
+LATER_CHUNK_WORDS = 40
+"""Merged text is sent early once it reaches this size, so one request never holds a
+paragraph."""
+
+HOLD_S = 0.35
+"""The longest merged text waits for more. A fast model finishes a whole reply inside it;
+a model paused on a tool call does not keep the words it already said waiting."""
+
 
 def _classify(status: int) -> str:
     """Provider status to a cause the shopper can be told about.
@@ -118,11 +142,22 @@ class GroqSpeechSynthesizer:
         voice: str = "hannah",
         model: str = MODEL,
         timeout_s: float = 15.0,
+        first_chunk_words: int = FIRST_CHUNK_WORDS,
+        later_chunk_words: int = LATER_CHUNK_WORDS,
+        hold_s: float = HOLD_S,
     ) -> None:
         if voice not in VOICES:
             raise ValueError(f"voice must be one of {VOICES}")
         self._voice = voice
         self._model = model
+        self._first_words = first_chunk_words
+        self._later_words = later_chunk_words
+        self._hold_s = hold_s
+        # Clauses of the active turn not yet sent, whether its first request has gone,
+        # and the timer that sends held words if the reply goes quiet.
+        self._pending: list[str] = []
+        self._first_sent = False
+        self._release: asyncio.Task[None] | None = None
         self._queue: asyncio.Queue[AgentAudio | None] = asyncio.Queue()
         self._session_id = ""
         # Cancellation is per TURN, not global. A single shared flag meant that a new
@@ -162,25 +197,59 @@ class GroqSpeechSynthesizer:
         if turn_id != self._active_turn:
             self._emit_chain.clear()
             self._turn_chars = 0
+            self._pending = []
+            self._first_sent = False
+            self._cancel_release()
         self._active_turn = turn_id
 
-        # Offsets are relative to the whole reply: each clause starts after the ones before
-        # it and the single space the orchestrator joins them with. Clause-relative offsets
-        # restarted at zero every clause, so "how much was heard" could not be answered.
+        self._pending.append(clause)
+        words = sum(len(c.split()) for c in self._pending)
+        if words >= (self._later_words if self._first_sent else self._first_words):
+            self._dispatch(turn_id)
+        elif self._release is None:
+            self._release = asyncio.create_task(self._release_after(turn_id))
+
+    def _dispatch(self, turn_id: str) -> None:
+        """Send the held clauses of this turn as one request."""
+        self._cancel_release()
+        text, self._pending = " ".join(self._pending), []
+        if not text or turn_id in self._cancelled:
+            return
+        self._first_sent = True
+
+        # Offsets are relative to the whole reply: each request starts after the text
+        # before it and the single space the orchestrator joins clauses with — which is
+        # also how held clauses are joined here, so merging moves no offset. Offsets that
+        # restarted at zero every request could not say how much had been heard.
         base = self._turn_chars
-        self._turn_chars += len(clause) + 1
+        self._turn_chars += len(text) + 1
 
         # Synthesis runs in parallel — that is the latency win — but emission is strictly
-        # in submission order. Clauses used to be emitted in whatever order their requests
-        # returned, and a short clause returns first: the agent could say its second
-        # clause before its first.
+        # in submission order. Requests used to be emitted in whatever order they
+        # returned, and a short one returns first: the agent could say its second clause
+        # before its first.
         previous = self._emit_chain.get(turn_id)
         emitted = asyncio.Event()
         self._emit_chain[turn_id] = emitted
 
-        task = asyncio.create_task(self._synthesize(clause, turn_id, base, previous, emitted))
+        task = asyncio.create_task(self._synthesize(text, turn_id, base, previous, emitted))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
+
+    async def _release_after(self, turn_id: str) -> None:
+        """Send held words once the reply has gone quiet for a moment."""
+        try:
+            await asyncio.sleep(self._hold_s)
+        except asyncio.CancelledError:
+            return
+        self._release = None
+        if turn_id == self._active_turn:
+            self._dispatch(turn_id)
+
+    def _cancel_release(self) -> None:
+        if self._release is not None:
+            self._release.cancel()
+            self._release = None
 
     async def _synthesize(
         self,
@@ -277,9 +346,12 @@ class GroqSpeechSynthesizer:
     async def drain(self, *, turn_id: str = "", timeout: float = 20.0) -> None:
         """Wait until every submitted clause has been synthesized and emitted.
 
-        Synthesis is fire-and-forget per clause, so the turn needs a way to know the
-        audio is genuinely out before it declares itself finished.
+        Synthesis is fire-and-forget per request, so the turn needs a way to know the
+        audio is genuinely out before it declares itself finished. It is also the end of
+        the reply, which is the moment to send whatever is still held.
         """
+        if self._pending and (not turn_id or turn_id == self._active_turn):
+            self._dispatch(self._active_turn)
         deadline = asyncio.get_running_loop().time() + timeout
         while asyncio.get_running_loop().time() < deadline:
             if turn_id and turn_id in self._cancelled:
@@ -292,8 +364,9 @@ class GroqSpeechSynthesizer:
             await asyncio.sleep(0.05)
 
     async def flush(self) -> None:
-        """No-op: each clause is synthesized as a complete request, so there is never a
-        partial generation waiting to be pushed out."""
+        """No-op: each request is synthesized whole, so there is never a partial
+        generation waiting to be pushed out. Held text is sent by `drain`, which the turn
+        calls when the reply is complete."""
         return None
 
     async def clear_buffer(self) -> None:
@@ -301,8 +374,11 @@ class GroqSpeechSynthesizer:
 
         There is no server-side interrupt on a REST endpoint, so in-flight synthesis is
         abandoned rather than cancelled upstream. The client-side `audio.flush` is what
-        the shopper actually experiences, and it is unaffected.
+        the shopper actually experiences, and it is unaffected. Words held back for
+        merging are dropped: they were never going to be heard.
         """
+        self._cancel_release()
+        self._pending = []
         if self._active_turn:
             self._cancelled.add(self._active_turn)
         for task in list(self._tasks):
@@ -319,6 +395,7 @@ class GroqSpeechSynthesizer:
             yield item
 
     async def close(self) -> None:
+        self._cancel_release()
         for task in list(self._tasks):
             task.cancel()
         await self._queue.put(None)

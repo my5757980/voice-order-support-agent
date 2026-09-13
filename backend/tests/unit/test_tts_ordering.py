@@ -4,6 +4,11 @@ Each clause is its own request to Orpheus, and they run in parallel for latency.
 used to be emitted in completion order — and a short clause completes first, so the
 agent could say its second clause before its first. Offsets used to restart at zero for
 every clause, so nothing could say how far into a reply the shopper had got.
+
+The adapter now merges clauses to stay inside the free tier's ten requests a minute (see
+test_tts_coalescing). These tests pin it back to one request per clause, because what
+they protect — order, offsets, and one failure not silencing the rest — is a property of
+requests, however the text is cut into them.
 """
 
 from __future__ import annotations
@@ -16,6 +21,8 @@ import wave
 import httpx
 
 from src.adapters.tts.groq_orpheus import GroqSpeechSynthesizer
+
+ONE_REQUEST_PER_CLAUSE = {"first_chunk_words": 1, "later_chunk_words": 1}
 
 
 def _wav(value: int, seconds: float) -> bytes:
@@ -36,7 +43,7 @@ def _tts(delays: dict[str, float], values: dict[str, int]) -> GroqSpeechSynthesi
         await asyncio.sleep(delays[clause])
         return httpx.Response(200, content=_wav(values[clause], 0.3))
 
-    tts = GroqSpeechSynthesizer(api_key="test", voice="hannah")
+    tts = GroqSpeechSynthesizer(api_key="test", voice="hannah", **ONE_REQUEST_PER_CLAUSE)
     tts._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     return tts
 
@@ -99,7 +106,7 @@ async def test_a_failed_clause_does_not_silence_the_rest() -> None:
             return httpx.Response(503, text="unavailable")
         return httpx.Response(200, content=_wav(2000, 0.3))
 
-    tts = GroqSpeechSynthesizer(api_key="test", voice="hannah")
+    tts = GroqSpeechSynthesizer(api_key="test", voice="hannah", **ONE_REQUEST_PER_CLAUSE)
     tts._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     await tts.submit(first, "t1")
     await tts.submit(second, "t1")
