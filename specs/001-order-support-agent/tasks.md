@@ -560,7 +560,7 @@ weaker software with a complete submission. **Every task here is critical path.*
   - **Done when**: repo is **public**; a clean clone runs via quickstart.md; **a secret scan of the full history returns nothing** — this project holds three vendor API keys and history is not rewritable after judges have the link.
   - **Effort**: M · **Critical path**: Yes
 
-- [ ] T086 File the submission on lablab.ai
+- [x] T086 File the submission on lablab.ai — done 2026-09-15: submitted as team "Voice Order Support Agent"; lablab confirmed "successfully submitted"; project page lists the video, cover, slides, repository and live app; the application URL answers a logged-out request (200, health ok). Discord membership was not checked from here
   - **What**: Enrol on lablab.ai and join the Discord (both required to participate). Attach every artifact, verify the Application URL loads for a logged-out visitor.
   - **Done when**: submission filed **before Sep 30, 8:00 PM PKT**. Manual submission exists for only 6 hours afterwards, requires prior organizer approval and a valid reason, and is not a buffer to plan around.
   - **Effort**: S · **Critical path**: Yes

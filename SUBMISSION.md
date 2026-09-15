@@ -59,7 +59,7 @@ time.
 `openai/gpt-oss-120b` with a manual tool loop · Groq / Canopy Labs Orpheus TTS · FastAPI +
 asyncio, one task group per turn · TypeScript + AudioWorklet capture and ring-buffer playback ·
 SQLite behind repository ports. Vendor SDKs live only in adapters; the core imports none, and a
-test enforces it. 279 tests.
+test enforces it. 288 tests.
 
 ## Technology tags
 
@@ -76,6 +76,7 @@ Voice AI · Voice Agent · Customer Support · E-commerce · Conversational AI
 
 | Field | Value |
 |---|---|
+| Submitted project page | https://lablab.ai/ai-hackathons/assemblyai-voice-agent-hackathon/voice-order-support-agent/voice-order-support-agent-interrupt-it-any-time |
 | Application URL | https://voice-order-support-agent--my5757980.replit.app |
 | Repository (public, MIT) | https://github.com/my5757980/voice-order-support-agent |
 | Video | `assets/demo.mp4` |
